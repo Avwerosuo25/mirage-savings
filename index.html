@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mirage Cooperative Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Work+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --forest:#173C2E; --forest-light:#2A6B4E; --gold:#B8902E; --gold-light:#EFE2C0;
+    --cream:#FAF7EF; --card:#FFFFFF; --ink:#20241F; --ink-soft:#5A6058;
+    --line:#E4DFD1; --clay:#A5432A; --clay-light:#F3E1D9; --green-fill:#E6EEE3;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--cream);color:var(--ink);font-family:'Work Sans',sans-serif;}
+  .wrap{max-width:1220px;margin:0 auto;padding:36px 28px 60px;}
+  .masthead{display:flex;justify-content:space-between;align-items:flex-end;gap:20px;margin-bottom:10px;border-bottom:2px solid var(--forest);padding-bottom:18px;}
+  .masthead h1{font-family:'Fraunces',serif;font-weight:600;font-size:32px;margin:0 0 4px;color:var(--forest);letter-spacing:-0.01em;}
+  .masthead .sub{font-size:13px;color:var(--ink-soft);letter-spacing:0.04em;text-transform:uppercase;}
+  .mastright{display:flex;align-items:center;gap:10px;}
+  .period{font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--gold);background:var(--gold-light);padding:6px 12px;border-radius:3px;white-space:nowrap;}
+  .lockbtn{font-family:'Work Sans',sans-serif;font-size:12.5px;border:1px solid var(--line);background:var(--card);padding:7px 13px;border-radius:4px;cursor:pointer;color:var(--ink-soft);display:flex;align-items:center;gap:6px;}
+  .lockbtn:hover{border-color:var(--forest-light);color:var(--forest);}
+  .lockbtn.unlocked{background:var(--green-fill);color:var(--forest-light);border-color:var(--forest-light);}
+
+  .tabs{display:flex;gap:4px;margin:18px 0 20px;flex-wrap:wrap;}
+  .tab{padding:9px 16px;font-size:13px;font-weight:500;color:var(--ink-soft);background:none;border:1px solid var(--line);border-radius:5px;cursor:pointer;font-family:'Work Sans',sans-serif;}
+  .tab.active{background:var(--forest);color:#F4F1E6;border-color:var(--forest);}
+  .view{display:none;}
+  .view.active{display:block;}
+
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px;}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:16px 18px;}
+  .stat .label{font-size:11px;text-transform:uppercase;letter-spacing:0.06em;color:var(--ink-soft);margin-bottom:8px;}
+  .stat .value{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:500;color:var(--forest);}
+  .stat.gold .value{color:var(--gold);} .stat.clay .value{color:var(--clay);}
+
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:6px;margin-bottom:24px;overflow:hidden;}
+  .panel-head{background:var(--forest);color:#F4F1E6;padding:12px 18px;font-family:'Fraunces',serif;font-size:16px;font-weight:600;display:flex;justify-content:space-between;align-items:center;}
+  .panel-head .hint{font-family:'Work Sans',sans-serif;font-size:12px;font-weight:400;color:#C9D6C7;}
+
+  table{width:100%;border-collapse:collapse;font-size:12.5px;}
+  thead th{background:var(--green-fill);color:var(--forest);text-align:right;font-weight:500;font-size:10.5px;text-transform:uppercase;letter-spacing:0.03em;padding:10px 7px;border-bottom:1px solid var(--line);white-space:nowrap;}
+  thead th:first-child, thead th:nth-child(2){text-align:left;}
+  tbody td{padding:6px 7px;border-bottom:1px solid var(--line);text-align:right;font-family:'IBM Plex Mono',monospace;font-size:12px;vertical-align:middle;}
+  tbody td:first-child{text-align:left;font-family:'Work Sans',sans-serif;font-size:12.5px;}
+  tbody tr:hover{background:#FCFBF7;}
+  tbody input, tbody select{width:100%;border:1px solid transparent;background:transparent;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:12px;padding:5px 4px;border-radius:3px;color:var(--ink);}
+  tbody td:first-child input{text-align:left;font-family:'Work Sans',sans-serif;font-size:12.5px;}
+  tbody select{text-align:left;font-family:'Work Sans',sans-serif;font-size:12px;appearance:none;}
+  tbody input:hover, tbody select:hover{border-color:var(--line);}
+  tbody input:focus, tbody select:focus{outline:none;border-color:var(--forest-light);background:#fff;}
+  tbody input:disabled{color:var(--ink-soft);}
+  tbody input[type="checkbox"]{width:auto;accent-color:var(--clay);}
+  .computed{color:var(--ink-soft);}
+  .computed.pos{color:var(--forest-light);font-weight:500;}
+  .computed.neg{color:var(--clay);font-weight:500;}
+  .rowdel{border:none;background:none;color:var(--ink-soft);cursor:pointer;font-size:16px;line-height:1;padding:4px;}
+  .rowdel:hover{color:var(--clay);}
+  tfoot td{padding:10px 7px;font-family:'IBM Plex Mono',monospace;font-weight:500;font-size:12.5px;background:var(--gold-light);color:var(--forest);border-top:2px solid var(--forest);text-align:right;}
+  tfoot td:first-child{text-align:left;font-family:'Fraunces',serif;}
+
+  .toolbar{padding:12px 18px;display:flex;gap:10px;border-top:1px solid var(--line);align-items:center;flex-wrap:wrap;}
+  button.add{background:var(--forest);color:#fff;border:none;padding:9px 16px;border-radius:4px;font-family:'Work Sans',sans-serif;font-size:13px;font-weight:500;cursor:pointer;}
+  button.add:hover{background:var(--forest-light);}
+  button.add.gold{background:var(--gold);}
+  button.add.gold:hover{background:#a17f28;}
+  button.save{background:none;border:1px solid var(--line);padding:9px 16px;border-radius:4px;font-family:'Work Sans',sans-serif;font-size:13px;cursor:pointer;color:var(--ink-soft);}
+  button.save:hover{border-color:var(--forest-light);color:var(--forest);}
+  .savestate{font-size:12px;color:var(--ink-soft);margin-left:auto;}
+
+  .settings{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:18px;}
+  .field label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:var(--ink-soft);margin-bottom:6px;}
+  .field input{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:13px;}
+  .field input:focus{outline:none;border-color:var(--forest-light);}
+
+  .notes{padding:16px 18px;font-size:13px;color:var(--ink-soft);line-height:1.7;border-top:1px solid var(--line);}
+  .notes b{color:var(--ink);}
+  .payoutbox{display:flex;justify-content:space-between;padding:10px 18px;border-top:1px solid var(--line);font-family:'IBM Plex Mono',monospace;}
+  .payoutbox .k{color:var(--ink-soft);font-family:'Work Sans',sans-serif;font-size:13px;}
+  .payoutbox .v{font-weight:500;color:var(--gold);}
+
+  .searchbar{padding:14px 18px;border-bottom:1px solid var(--line);}
+  .searchbar input{width:100%;max-width:340px;padding:9px 12px;border:1px solid var(--line);border-radius:4px;font-family:'Work Sans',sans-serif;font-size:13px;}
+  .searchbar input:focus{outline:none;border-color:var(--forest-light);}
+
+  details.period{border-bottom:1px solid var(--line);}
+  details.period:last-child{border-bottom:none;}
+  details.period summary{list-style:none;cursor:pointer;padding:13px 18px;display:flex;justify-content:space-between;align-items:center;font-family:'Fraunces',serif;font-size:15px;color:var(--forest);}
+  details.period summary::-webkit-details-marker{display:none;}
+  details.period summary .meta{font-family:'Work Sans',sans-serif;font-size:12px;color:var(--ink-soft);font-weight:400;}
+  details.period[open] summary{background:var(--green-fill);}
+  .empty{padding:24px 18px;color:var(--ink-soft);font-size:13px;text-align:center;}
+
+  .setupbanner{background:var(--clay-light);border:1px solid var(--clay);color:var(--clay);border-radius:6px;padding:14px 18px;margin-bottom:20px;font-size:13px;line-height:1.6;}
+  .setupbanner b{display:block;margin-bottom:4px;font-family:'Fraunces',serif;font-size:15px;}
+  .setupbanner code{background:#fff;padding:1px 6px;border-radius:3px;font-family:'IBM Plex Mono',monospace;font-size:12px;}
+  .synctag{font-size:11px;color:var(--ink-soft);}
+  .synctag.live{color:var(--forest-light);}
+
+  @media (max-width:720px){
+    .stats{grid-template-columns:repeat(2,1fr);}
+    .settings{grid-template-columns:1fr;}
+    .wrap{padding:20px 12px;}
+    table{font-size:11px;}
+    .masthead{flex-wrap:wrap;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="setupbanner" id="setupBanner" style="display:none;">
+    <b>Connect a database to make this live</b>
+    Add your Firebase Realtime Database URL to <code>FIREBASE_DB_URL</code> near the top of the script, then reload. Until then, nothing you enter here will be saved or shared.
+  </div>
+
+  <div class="masthead">
+    <div>
+      <h1>Mirage Cooperative</h1>
+      <div class="sub">Savings, loans &amp; payout ledger</div>
+    </div>
+    <div class="mastright">
+      <span class="synctag" id="syncTag">not connected</span>
+      <div class="period" id="periodLabel">2026</div>
+      <button class="lockbtn" id="lockBtn"><i>&#128274;</i><span id="lockBtnText">Admin login</span></button>
+    </div>
+  </div>
+
+  <div class="tabs" id="tabbar">
+    <button class="tab active" data-view="dashboard">Dashboard</button>
+    <button class="tab" data-view="history">History</button>
+    <button class="tab" data-view="yearly">Yearly summary</button>
+    <button class="tab admin-only" data-view="members" style="display:none;">Members</button>
+    <button class="tab admin-only" data-view="loans" style="display:none;">Loans</button>
+    <button class="tab admin-only" data-view="settings" style="display:none;">Settings</button>
+  </div>
+
+  <div class="view active" id="view-dashboard">
+    <div class="stats">
+      <div class="stat"><div class="label">Net savings pool (open period)</div><div class="value" id="statSavings">₦0</div></div>
+      <div class="stat clay"><div class="label">Penalties this period</div><div class="value" id="statPenalties">₦0</div></div>
+      <div class="stat"><div class="label">Total loan interest</div><div class="value" id="statLoanRoi">₦0</div></div>
+      <div class="stat gold"><div class="label">Distributable income</div><div class="value" id="statDistrib">₦0</div></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">Open period — <span id="openPeriodName">current month</span>
+        <span class="hint" id="dashHint">read-only view · log in to record entries</span>
+      </div>
+      <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th style="text-align:left;">Name</th>
+            <th>Saved this period</th>
+            <th>Missed</th>
+            <th>Penalty</th>
+            <th>Loan due</th>
+            <th>Net savings</th>
+            <th>Capital %</th>
+            <th>ROI share</th>
+            <th>Payout</th>
+          </tr>
+        </thead>
+        <tbody id="dashRows"></tbody>
+        <tfoot>
+          <tr>
+            <td>Total</td>
+            <td id="dfSaved"></td>
+            <td></td>
+            <td id="dfPenalty"></td>
+            <td id="dfLoanDue"></td>
+            <td id="dfNet"></td>
+            <td>100%</td>
+            <td id="dfShare"></td>
+            <td id="dfPayout"></td>
+          </tr>
+        </tfoot>
+      </table>
+      </div>
+      <div class="toolbar admin-only" id="closeBar" style="display:none;">
+        <input type="text" id="nextPeriodInput" placeholder="Name for next period, e.g. September 2026" style="flex:1;min-width:220px;padding:9px 10px;border:1px solid var(--line);border-radius:4px;font-family:'Work Sans',sans-serif;font-size:13px;">
+        <button class="add gold" id="closePeriod">Close period &amp; start next</button>
+        <span class="savestate" id="saveStateDash">saved</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">How this is worked out</div>
+      <div class="notes">
+        <b>Net savings</b> = running balance (past contributions minus any penalties already charged) + this period's contribution − current outstanding loan due.<br>
+        <b>Capital %</b> = a member's net savings ÷ everyone's net savings combined. Members with an unpaid loan still earn ROI on their capital.<br>
+        <b>Total income</b> = total interest earned on loans + penalties collected this period.<br>
+        <b>Distributable income</b> = 75% (adjustable in Settings) of total income, split by capital % — this is each member's ROI.<br>
+        <b>Payout</b> = net savings + that member's ROI share. Closing a period locks these numbers into History and starts a fresh one.
+      </div>
+      <div class="payoutbox">
+        <span class="k">Total income (loan interest + penalties)</span>
+        <span class="v" id="totalIncome">₦0</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="view" id="view-history">
+    <div class="panel">
+      <div class="panel-head">Monthly history <span class="hint">open to everyone</span></div>
+      <div class="searchbar">
+        <input type="text" id="historySearch" placeholder="Find a member's history — type a name">
+      </div>
+      <div id="historyList"></div>
+    </div>
+  </div>
+
+  <div class="view" id="view-yearly">
+    <div class="panel">
+      <div class="panel-head">Yearly summary <span class="hint">open to everyone</span></div>
+      <div class="searchbar">
+        <label style="font-size:12px;color:var(--ink-soft);margin-right:8px;">Year</label>
+        <select id="yearSelect" style="padding:8px 10px;border:1px solid var(--line);border-radius:4px;font-family:'Work Sans',sans-serif;font-size:13px;"></select>
+      </div>
+      <div style="overflow-x:auto;">
+      <table>
+        <thead><tr>
+          <th style="text-align:left;">Name</th><th>Periods closed</th><th>Total saved</th>
+          <th>Total penalties</th><th>Total ROI earned</th><th>Latest net savings</th><th>Total payout</th>
+        </tr></thead>
+        <tbody id="yearRows"></tbody>
+        <tfoot>
+          <tr>
+            <td>Total</td><td id="yfPeriods"></td><td id="yfSaved"></td>
+            <td id="yfPenalty"></td><td id="yfShare"></td><td id="yfNet"></td><td id="yfPayout"></td>
+          </tr>
+        </tfoot>
+      </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="view" id="view-members">
+    <div class="panel">
+      <div class="panel-head">Members <span class="hint">roster — savings entries are logged on the Dashboard each period</span></div>
+      <div style="overflow-x:auto;">
+      <table>
+        <thead><tr><th></th><th style="text-align:left;">Name</th><th>Running balance</th></tr></thead>
+        <tbody id="memberRows"></tbody>
+      </table>
+      </div>
+      <div class="toolbar">
+        <button class="add" id="addMember">+ Add member</button>
+        <span class="savestate" id="saveStateMembers">saved</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="view" id="view-loans">
+    <div class="panel">
+      <div class="panel-head">Loans <span class="hint">members borrow interest-free by default · outsiders set their own rate</span></div>
+      <div style="overflow-x:auto;">
+      <table>
+        <thead>
+          <tr>
+            <th></th><th style="text-align:left;">Borrower</th><th>Type</th>
+            <th>Principal</th><th>Rate %</th><th>Paid so far</th><th>Interest</th><th>Amount due</th>
+          </tr>
+        </thead>
+        <tbody id="loanRows"></tbody>
+        <tfoot>
+          <tr>
+            <td colspan="3">Total</td>
+            <td id="lfPrincipal"></td><td></td>
+            <td id="lfPaid"></td><td id="lfInterest"></td><td id="lfDue"></td>
+          </tr>
+        </tfoot>
+      </table>
+      </div>
+      <div class="toolbar">
+        <button class="add" id="addLoan">+ Add loan</button>
+        <span class="savestate" id="saveStateLoans">saved</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="view" id="view-settings">
+    <div class="panel">
+      <div class="panel-head">Settings</div>
+      <div class="settings">
+        <div class="field"><label>Late penalty fee (₦ per missed period)</label><input type="number" id="setPenaltyFee" value="1000"></div>
+        <div class="field"><label>Savings cutoff day</label><input type="number" id="setCutoffDay" value="30"></div>
+        <div class="field"><label>Payout share of income (%)</label><input type="number" id="setPayoutPct" value="75"></div>
+      </div>
+      <div class="toolbar">
+        <button class="save" id="changePasscode">Change admin passcode</button>
+        <button class="save" id="resetAll">Clear all data</button>
+        <span class="savestate" id="saveStateSettings">saved</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ====== DATABASE CONFIG ======
+// 1. Create a free project at https://console.firebase.google.com
+// 2. Build > Realtime Database > Create Database > start in test mode
+// 3. Copy the URL shown at the top of that page (e.g. https://your-project-default-rtdb.firebaseio.com)
+// 4. Paste it below, replacing the placeholder, then reload this page.
+const FIREBASE_DB_URL = "https://console.firebase.google.com/u/0/project/mirage-savings-proj/database/mirage-savings-proj-default-rtdb/data/~2F";
+const DATA_PATH = "coopData";
+const isConfigured = FIREBASE_DB_URL && !FIREBASE_DB_URL.includes('REPLACE_WITH');
+let eventSource = null;
+let applyingRemote = false;
+
+function dbEndpoint(){ return `${FIREBASE_DB_URL}/${DATA_PATH}.json`; }
+
+let members = [];
+let loans = [];
+let history = [];
+let currentEntries = {};
+let currentPeriodLabel = 'August 2026';
+let settings = { penaltyFee: 1000, cutoffDay: 30, payoutPct: 75, adminPasscode: '' };
+let unlocked = false;
+let saveTimer = null;
+
+function fmt(n){ n = Math.round(n || 0); return '₦' + n.toLocaleString('en-NG'); }
+function pct(n){ return (Math.round((n||0)*1000)/10) + '%'; }
+function uid(p){ return p + Math.random().toString(36).slice(2,9); }
+
+// preserve focus/cursor across table rebuilds so typing doesn't get interrupted
+function captureFocus(containerId){
+  const el = document.activeElement;
+  const container = document.getElementById(containerId);
+  if(!el || !container || !container.contains(el)) return null;
+  let selStart = null, selEnd = null;
+  try{
+    if(typeof el.selectionStart === 'number'){ selStart = el.selectionStart; selEnd = el.selectionEnd; }
+  }catch(e){ /* number-type inputs don't support selection range in some browsers */ }
+  return {
+    kind: el.dataset.kind || '',
+    field: el.dataset.field || '',
+    id: el.dataset.id !== undefined ? el.dataset.id : null,
+    i: el.dataset.i !== undefined ? el.dataset.i : null,
+    selStart, selEnd
+  };
+}
+function restoreFocus(containerId, snap){
+  if(!snap) return;
+  let sel = `#${containerId} [data-kind="${snap.kind}"][data-field="${snap.field}"]`;
+  sel += (snap.id !== null) ? `[data-id="${snap.id}"]` : `[data-i="${snap.i}"]`;
+  const el = document.querySelector(sel);
+  if(el){
+    el.focus();
+    if(snap.selStart !== null){
+      try{ el.setSelectionRange(snap.selStart, snap.selEnd); }catch(e){ /* not all input types support this */ }
+    }
+  }
+}
+
+// ---------- loans ----------
+function computeLoans(){
+  return loans.map(l => {
+    const principal = parseFloat(l.principal) || 0;
+    const isMember = l.type === 'member';
+    const rate = isMember ? 0 : (parseFloat(l.rate) || 0);
+    const paid = parseFloat(l.paid) || 0;
+    const interest = principal * (rate/100);
+    const amountDue = Math.max(0, principal + interest - paid);
+    return { ...l, principal, rate, paid, interest, amountDue };
+  });
+}
+function loanDueByMemberName(loanRows){
+  const map = {};
+  loanRows.forEach(l => {
+    if(l.type === 'member' && l.borrower){
+      map[l.borrower] = (map[l.borrower] || 0) + l.amountDue;
+    }
+  });
+  return map;
+}
+
+// ---------- open period preview (not yet committed) ----------
+function computeOpenPeriod(){
+  const loanRows = computeLoans();
+  const loanDue = loanDueByMemberName(loanRows);
+  let grand = 0;
+  const prelim = members.map(m => {
+    const entry = currentEntries[m.id] || {};
+    const prior = parseFloat(m.balance) || 0;
+    const saved = parseFloat(entry.amountSaved) || 0;
+    const missed = !!entry.missed;
+    const penalty = missed ? (parseFloat(settings.penaltyFee)||0) : 0;
+    const runningAfter = prior + saved - penalty;
+    const due = loanDue[m.name] || 0;
+    const net = runningAfter - due;
+    grand += net;
+    return { id: m.id, name: m.name, prior, saved, missed, penalty, runningAfter, loanDue: due, net };
+  });
+  let totalPenalty = 0, totalLoanInterest = 0;
+  prelim.forEach(p => totalPenalty += p.penalty);
+  loanRows.forEach(l => totalLoanInterest += l.interest);
+  const totalIncome = totalPenalty + totalLoanInterest;
+  const distributable = totalIncome * ((parseFloat(settings.payoutPct)||0)/100);
+  const rows = prelim.map(p => {
+    const capitalPct = grand > 0 ? (p.net / grand) : 0;
+    const share = distributable * capitalPct;
+    const payout = p.net + share;
+    return { ...p, capitalPct, share, payout };
+  });
+  return { rows, grand, totalPenalty, totalLoanInterest, totalIncome, distributable };
+}
+
+// ---------- render: dashboard ----------
+function renderDashboard(){
+  const focusSnap = captureFocus('dashRows');
+  const { rows, totalPenalty, totalLoanInterest, totalIncome, distributable } = computeOpenPeriod();
+  const tbody = document.getElementById('dashRows');
+  tbody.innerHTML = '';
+  let fSaved=0, fPenalty=0, fLoanDue=0, fNet=0, fShare=0, fPayout=0;
+  rows.forEach(r => {
+    fSaved += r.saved; fPenalty += r.penalty; fLoanDue += r.loanDue; fNet += r.net; fShare += r.share; fPayout += r.payout;
+    const tr = document.createElement('tr');
+    const savedCell = unlocked
+      ? `<input data-field="amountSaved" data-kind="entry" data-id="${r.id}" type="number" value="${(currentEntries[r.id]&&currentEntries[r.id].amountSaved)||''}" placeholder="0">`
+      : `<span>${fmt(r.saved)}</span>`;
+    const missedCell = unlocked
+      ? `<input data-field="missed" data-kind="entry" data-id="${r.id}" type="checkbox" ${r.missed?'checked':''}>`
+      : `<span>${r.missed ? 'Yes' : 'No'}</span>`;
+    tr.innerHTML = `
+      <td>${r.name || '(unnamed)'}</td>
+      <td>${savedCell}</td>
+      <td style="text-align:center;">${missedCell}</td>
+      <td class="computed neg">${fmt(r.penalty)}</td>
+      <td class="computed neg">${fmt(r.loanDue)}</td>
+      <td class="computed pos">${fmt(r.net)}</td>
+      <td class="computed">${pct(r.capitalPct)}</td>
+      <td class="computed">${fmt(r.share)}</td>
+      <td class="computed pos">${fmt(r.payout)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+  document.getElementById('dfSaved').textContent = fmt(fSaved);
+  document.getElementById('dfPenalty').textContent = fmt(fPenalty);
+  document.getElementById('dfLoanDue').textContent = fmt(fLoanDue);
+  document.getElementById('dfNet').textContent = fmt(fNet);
+  document.getElementById('dfShare').textContent = fmt(fShare);
+  document.getElementById('dfPayout').textContent = fmt(fPayout);
+  document.getElementById('statSavings').textContent = fmt(fNet);
+  document.getElementById('statPenalties').textContent = fmt(totalPenalty);
+  document.getElementById('statLoanRoi').textContent = fmt(totalLoanInterest);
+  document.getElementById('statDistrib').textContent = fmt(distributable);
+  document.getElementById('totalIncome').textContent = fmt(totalIncome);
+  document.getElementById('openPeriodName').textContent = currentPeriodLabel;
+  document.getElementById('dashHint').textContent = unlocked ? 'editing entries for this period' : 'read-only view · log in to record entries';
+
+  document.querySelectorAll('[data-kind="entry"]').forEach(inp => {
+    inp.addEventListener(inp.type === 'checkbox' ? 'change' : 'input', e => {
+      const id = e.target.dataset.id;
+      if(!currentEntries[id]) currentEntries[id] = {};
+      currentEntries[id][e.target.dataset.field] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+      scheduleSave();
+      renderDashboard();
+    });
+  });
+  restoreFocus('dashRows', focusSnap);
+}
+
+// ---------- render: members ----------
+function renderMembers(){
+  const focusSnap = captureFocus('memberRows');
+  const tbody = document.getElementById('memberRows');
+  tbody.innerHTML = '';
+  members.forEach((m, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><button class="rowdel" data-kind="member" data-i="${i}" aria-label="Remove member">&times;</button></td>
+      <td><input data-field="name" data-kind="member" data-i="${i}" value="${m.name || ''}" placeholder="Member name"></td>
+      <td class="computed pos">${fmt(parseFloat(m.balance)||0)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+  document.querySelectorAll('[data-kind="member"][data-field]').forEach(inp => {
+    inp.addEventListener('input', e => {
+      const i = parseInt(e.target.dataset.i);
+      members[i][e.target.dataset.field] = e.target.value;
+      scheduleSave();
+      renderAll();
+    });
+  });
+  document.querySelectorAll('.rowdel[data-kind="member"]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const i = parseInt(e.target.dataset.i);
+      members.splice(i,1);
+      scheduleSave();
+      renderAll();
+    });
+  });
+  restoreFocus('memberRows', focusSnap);
+}
+
+// ---------- render: loans ----------
+function renderLoans(){
+  const focusSnap = captureFocus('loanRows');
+  const tbody = document.getElementById('loanRows');
+  tbody.innerHTML = '';
+  const rows = computeLoans();
+  let fPrincipal=0, fPaid=0, fInterest=0, fDue=0;
+  rows.forEach((l, i) => {
+    fPrincipal += l.principal; fPaid += l.paid; fInterest += l.interest; fDue += l.amountDue;
+    const memberOptions = members.map(m => `<option value="${m.name}" ${l.borrower===m.name?'selected':''}>${m.name || '(unnamed)'}</option>`).join('');
+    const borrowerCell = l.type === 'member'
+      ? `<select data-field="borrower" data-kind="loan" data-i="${i}"><option value="">Select member…</option>${memberOptions}</select>`
+      : `<input data-field="borrower" data-kind="loan" data-i="${i}" value="${l.borrower || ''}" placeholder="Outsider name">`;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><button class="rowdel" data-kind="loan" data-i="${i}" aria-label="Remove loan">&times;</button></td>
+      <td>${borrowerCell}</td>
+      <td>
+        <select data-field="type" data-kind="loan" data-i="${i}" style="text-align:right;">
+          <option value="member" ${l.type==='member'?'selected':''}>Member — free</option>
+          <option value="outsider" ${l.type==='outsider'?'selected':''}>Outsider — rate</option>
+        </select>
+      </td>
+      <td><input data-field="principal" data-kind="loan" data-i="${i}" type="number" value="${l.principal || ''}" placeholder="0"></td>
+      <td><input data-field="rate" data-kind="loan" data-i="${i}" type="number" value="${l.rate || ''}" placeholder="0" ${l.type==='member' ? 'disabled' : ''}></td>
+      <td><input data-field="paid" data-kind="loan" data-i="${i}" type="number" value="${l.paid || ''}" placeholder="0"></td>
+      <td class="computed">${fmt(l.interest)}</td>
+      <td class="computed ${l.amountDue>0?'neg':''}">${fmt(l.amountDue)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+  document.getElementById('lfPrincipal').textContent = fmt(fPrincipal);
+  document.getElementById('lfPaid').textContent = fmt(fPaid);
+  document.getElementById('lfInterest').textContent = fmt(fInterest);
+  document.getElementById('lfDue').textContent = fmt(fDue);
+
+  document.querySelectorAll('[data-kind="loan"][data-field]').forEach(inp => {
+    inp.addEventListener('input', e => {
+      const i = parseInt(e.target.dataset.i);
+      const field = e.target.dataset.field;
+      loans[i][field] = e.target.value;
+      if(field === 'type' && e.target.value === 'member'){ loans[i].rate = 0; }
+      scheduleSave();
+      renderLoans();
+      renderDashboard();
+    });
+  });
+  document.querySelectorAll('.rowdel[data-kind="loan"]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const i = parseInt(e.target.dataset.i);
+      loans.splice(i,1);
+      scheduleSave();
+      renderAll();
+    });
+  });
+  restoreFocus('loanRows', focusSnap);
+}
+
+// ---------- render: history ----------
+function renderHistory(filter){
+  const container = document.getElementById('historyList');
+  container.innerHTML = '';
+  const q = (filter || '').trim().toLowerCase();
+  const ordered = [...history].reverse();
+  if(ordered.length === 0){
+    container.innerHTML = '<div class="empty">No periods closed yet. Once the admin closes the current period, it will appear here.</div>';
+    return;
+  }
+  let anyShown = false;
+  ordered.forEach(period => {
+    const rows = q ? period.rows.filter(r => (r.name||'').toLowerCase().includes(q)) : period.rows;
+    if(q && rows.length === 0) return;
+    anyShown = true;
+    const det = document.createElement('details');
+    det.className = 'period';
+    if(q) det.open = true;
+    let totalNet=0, totalPayout=0;
+    rows.forEach(r => { totalNet += r.net; totalPayout += r.payout; });
+    const rowsHtml = rows.map(r => `
+      <tr>
+        <td>${r.name}</td>
+        <td class="computed">${fmt(r.saved)}</td>
+        <td class="computed neg">${fmt(r.penalty)}</td>
+        <td class="computed neg">${fmt(r.loanDue)}</td>
+        <td class="computed pos">${fmt(r.net)}</td>
+        <td class="computed">${pct(r.capitalPct)}</td>
+        <td class="computed">${fmt(r.share)}</td>
+        <td class="computed pos">${fmt(r.payout)}</td>
+      </tr>`).join('');
+    det.innerHTML = `
+      <summary>${period.label} <span class="meta">closed ${period.closedAt} · ${rows.length} member${rows.length===1?'':'s'} shown</span></summary>
+      <div style="overflow-x:auto;">
+      <table>
+        <thead><tr>
+          <th style="text-align:left;">Name</th><th>Saved</th><th>Penalty</th><th>Loan due</th>
+          <th>Net savings</th><th>Capital %</th><th>ROI share</th><th>Payout</th>
+        </tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      </div>
+    `;
+    container.appendChild(det);
+  });
+  if(!anyShown){
+    container.innerHTML = '<div class="empty">No history matches that name.</div>';
+  }
+}
+
+// ---------- yearly summary ----------
+function getAvailableYears(){
+  const set = new Set(history.map(p => (p.closedAt || '').slice(0,4)).filter(Boolean));
+  set.add(String(new Date().getFullYear()));
+  return Array.from(set).sort().reverse();
+}
+function renderYearly(){
+  const yearSel = document.getElementById('yearSelect');
+  const years = getAvailableYears();
+  const prevChoice = yearSel.value;
+  yearSel.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
+  yearSel.value = years.includes(prevChoice) ? prevChoice : years[0];
+  const year = yearSel.value;
+
+  const periods = history.filter(p => (p.closedAt || '').slice(0,4) === year);
+  const byMember = {};
+  periods.forEach(p => {
+    p.rows.forEach(r => {
+      if(!byMember[r.name]) byMember[r.name] = { name: r.name, periods: 0, saved: 0, penalty: 0, share: 0, payout: 0, lastNet: 0 };
+      const b = byMember[r.name];
+      b.periods += 1; b.saved += r.saved; b.penalty += r.penalty; b.share += r.share; b.payout += r.payout; b.lastNet = r.net;
+    });
+  });
+  const rows = Object.values(byMember);
+  const tbody = document.getElementById('yearRows');
+  let fPeriods=0, fSaved=0, fPenalty=0, fShare=0, fNet=0, fPayout=0;
+  if(rows.length === 0){
+    tbody.innerHTML = `<tr><td colspan="7" class="empty" style="text-align:center;">No periods closed in ${year} yet.</td></tr>`;
+  }else{
+    tbody.innerHTML = rows.map(r => {
+      fPeriods += r.periods; fSaved += r.saved; fPenalty += r.penalty; fShare += r.share; fNet += r.lastNet; fPayout += r.payout;
+      return `<tr>
+        <td>${r.name}</td>
+        <td class="computed">${r.periods}</td>
+        <td class="computed">${fmt(r.saved)}</td>
+        <td class="computed neg">${fmt(r.penalty)}</td>
+        <td class="computed">${fmt(r.share)}</td>
+        <td class="computed pos">${fmt(r.lastNet)}</td>
+        <td class="computed pos">${fmt(r.payout)}</td>
+      </tr>`;
+    }).join('');
+  }
+  document.getElementById('yfPeriods').textContent = fPeriods || '';
+  document.getElementById('yfSaved').textContent = fmt(fSaved);
+  document.getElementById('yfPenalty').textContent = fmt(fPenalty);
+  document.getElementById('yfShare').textContent = fmt(fShare);
+  document.getElementById('yfNet').textContent = fmt(fNet);
+  document.getElementById('yfPayout').textContent = fmt(fPayout);
+}
+
+// ---------- close period ----------
+function closePeriod(){
+  if(!unlocked) return;
+  if(members.length === 0){ alert('Add at least one member before closing a period.'); return; }
+  const nextLabel = document.getElementById('nextPeriodInput').value.trim();
+  if(!confirm(`Close "${currentPeriodLabel}"? This locks in the numbers and starts a fresh period.`)) return;
+
+  const { rows, totalPenalty, totalLoanInterest, totalIncome, distributable } = computeOpenPeriod();
+
+  history.push({
+    label: currentPeriodLabel,
+    closedAt: new Date().toISOString().slice(0,10),
+    rows: rows.map(r => ({ name: r.name, saved: r.saved, penalty: r.penalty, loanDue: r.loanDue, net: r.net, capitalPct: r.capitalPct, share: r.share, payout: r.payout })),
+    totals: { totalPenalty, totalLoanInterest, totalIncome, distributable }
+  });
+
+  // commit running balances
+  rows.forEach(r => {
+    const m = members.find(mm => mm.id === r.id);
+    if(m) m.balance = r.runningAfter;
+  });
+
+  currentEntries = {};
+  currentPeriodLabel = nextLabel || 'Untitled period';
+  document.getElementById('nextPeriodInput').value = '';
+
+  scheduleSave();
+  renderAll();
+}
+
+// ---------- global render ----------
+function renderAll(){
+  renderMembers();
+  renderLoans();
+  renderDashboard();
+  renderHistory(document.getElementById('historySearch').value);
+  renderYearly();
+  document.getElementById('periodLabel').textContent = currentPeriodLabel;
+}
+
+function currentState(){
+  return { members, loans, history, currentEntries, currentPeriodLabel, settings };
+}
+
+function applyRemoteState(data){
+  if(!data) return;
+  applyingRemote = true;
+  members = data.members || [];
+  loans = data.loans || [];
+  history = data.history || [];
+  currentEntries = data.currentEntries || {};
+  currentPeriodLabel = data.currentPeriodLabel || currentPeriodLabel;
+  settings = Object.assign({ penaltyFee:1000, cutoffDay:30, payoutPct:75, adminPasscode:'' }, data.settings || {});
+  document.getElementById('setPenaltyFee').value = settings.penaltyFee;
+  document.getElementById('setCutoffDay').value = settings.cutoffDay;
+  document.getElementById('setPayoutPct').value = settings.payoutPct;
+  renderAll();
+  applyingRemote = false;
+}
+
+function connectRealtime(){
+  if(!isConfigured) return;
+  try{
+    eventSource = new EventSource(dbEndpoint());
+    eventSource.addEventListener('put', e => {
+      try{
+        const parsed = JSON.parse(e.data);
+        if(parsed && parsed.path === '/'){
+          applyRemoteState(parsed.data);
+          setSyncTag('live', true);
+        }
+      }catch(err){ console.error('Realtime parse error:', err); }
+    });
+    eventSource.onopen = () => setSyncTag('live', true);
+    eventSource.onerror = () => setSyncTag('reconnecting…', false);
+  }catch(err){
+    console.error('Realtime connect error:', err);
+    setSyncTag('not connected', false);
+  }
+}
+
+function setSyncTag(text, live){
+  const el = document.getElementById('syncTag');
+  if(!el) return;
+  el.textContent = text;
+  el.classList.toggle('live', !!live);
+}
+
+function scheduleSave(){
+  if(applyingRemote) return; // don't echo back a change we just received
+  ['saveStateDash','saveStateMembers','saveStateLoans','saveStateSettings'].forEach(id => {
+    const el = document.getElementById(id); if(el) el.textContent = 'saving…';
+  });
+  if(!isConfigured){
+    ['saveStateDash','saveStateMembers','saveStateLoans','saveStateSettings'].forEach(id => {
+      const el = document.getElementById(id); if(el) el.textContent = 'not connected';
+    });
+    return;
+  }
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try{
+      const res = await fetch(dbEndpoint(), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(currentState())
+      });
+      if(!res.ok) throw new Error('write failed: ' + res.status);
+      ['saveStateDash','saveStateMembers','saveStateLoans','saveStateSettings'].forEach(id => {
+        const el = document.getElementById(id); if(el) el.textContent = 'saved';
+      });
+    }catch(err){
+      ['saveStateDash','saveStateMembers','saveStateLoans','saveStateSettings'].forEach(id => {
+        const el = document.getElementById(id); if(el) el.textContent = 'save failed';
+      });
+      console.error('Storage error:', err);
+    }
+  }, 500);
+}
+
+// ---------- admin lock ----------
+function applyLockState(){
+  document.querySelectorAll('.admin-only').forEach(el => { el.style.display = unlocked ? '' : 'none'; });
+  document.getElementById('closeBar').style.display = unlocked ? 'flex' : 'none';
+  const btn = document.getElementById('lockBtn');
+  const txt = document.getElementById('lockBtnText');
+  btn.classList.toggle('unlocked', unlocked);
+  txt.textContent = unlocked ? 'Editing unlocked' : 'Admin login';
+  if(!unlocked && ['members','loans','settings'].includes(document.querySelector('.tab.active').dataset.view)){
+    document.querySelector('.tab[data-view="dashboard"]').click();
+  }
+  renderDashboard();
+}
+
+document.getElementById('lockBtn').addEventListener('click', () => {
+  if(unlocked){
+    unlocked = false;
+    applyLockState();
+    return;
+  }
+  if(!settings.adminPasscode){
+    const p1 = prompt('No admin passcode is set yet. Create one now:');
+    if(!p1) return;
+    settings.adminPasscode = p1;
+    scheduleSave();
+    unlocked = true;
+    applyLockState();
+    alert('Passcode set. Keep it safe — you can change it later in Settings.');
+    return;
+  }
+  const attempt = prompt('Enter admin passcode:');
+  if(attempt === null) return;
+  if(attempt === settings.adminPasscode){
+    unlocked = true;
+    applyLockState();
+  }else{
+    alert('Incorrect passcode.');
+  }
+});
+
+document.getElementById('changePasscode').addEventListener('click', () => {
+  if(!unlocked) return;
+  const p1 = prompt('Enter a new admin passcode:');
+  if(!p1) return;
+  settings.adminPasscode = p1;
+  scheduleSave();
+  alert('Passcode updated.');
+});
+
+document.getElementById('addMember').addEventListener('click', () => {
+  if(!unlocked) return;
+  members.push({ id: uid('m'), name: '', balance: 0 });
+  scheduleSave();
+  renderAll();
+});
+document.getElementById('addLoan').addEventListener('click', () => {
+  if(!unlocked) return;
+  loans.push({ id: uid('l'), borrower: '', type: 'member', principal: '', rate: '', paid: '' });
+  scheduleSave();
+  renderAll();
+});
+document.getElementById('closePeriod').addEventListener('click', closePeriod);
+document.getElementById('resetAll').addEventListener('click', () => {
+  if(!unlocked) return;
+  if(!confirm('Clear every member, loan, and history record? This cannot be undone.')) return;
+  members = []; loans = []; history = []; currentEntries = {}; currentPeriodLabel = 'August 2026';
+  scheduleSave();
+  renderAll();
+});
+document.getElementById('historySearch').addEventListener('input', e => renderHistory(e.target.value));
+document.getElementById('yearSelect').addEventListener('change', renderYearly);
+
+['setPenaltyFee','setCutoffDay','setPayoutPct'].forEach(id => {
+  document.getElementById(id).addEventListener('input', e => {
+    if(!unlocked) return;
+    const map = { setPenaltyFee:'penaltyFee', setCutoffDay:'cutoffDay', setPayoutPct:'payoutPct' };
+    settings[map[id]] = e.target.value;
+    scheduleSave();
+    renderAll();
+  });
+});
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    if(tab.classList.contains('admin-only') && !unlocked) return;
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('view-' + tab.dataset.view).classList.add('active');
+  });
+});
+
+async function init(){
+  if(!isConfigured){
+    document.getElementById('setupBanner').style.display = 'block';
+    setSyncTag('not connected', false);
+  }else{
+    try{
+      const res = await fetch(dbEndpoint());
+      const data = await res.json();
+      if(data){
+        members = data.members || [];
+        loans = data.loans || [];
+        history = data.history || [];
+        currentEntries = data.currentEntries || {};
+        currentPeriodLabel = data.currentPeriodLabel || currentPeriodLabel;
+        settings = Object.assign(settings, data.settings || {});
+      }
+      setSyncTag('live', true);
+    }catch(err){
+      console.error('Initial load error:', err);
+      setSyncTag('load failed', false);
+    }
+  }
+
+  document.getElementById('setPenaltyFee').value = settings.penaltyFee;
+  document.getElementById('setCutoffDay').value = settings.cutoffDay;
+  document.getElementById('setPayoutPct').value = settings.payoutPct;
+
+  if(members.length === 0){
+    members = [{ id: uid('m'), name: 'Sample member', balance: 0 }];
+  }
+
+  applyLockState();
+  renderAll();
+  connectRealtime();
+}
+init();
+</script>
+</body>
+</html>
