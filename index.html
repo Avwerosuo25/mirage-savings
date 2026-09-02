@@ -57,6 +57,12 @@
   .computed{color:var(--ink-soft);}
   .computed.pos{color:var(--forest-light);font-weight:500;}
   .computed.neg{color:var(--clay);font-weight:500;}
+  .badge{display:inline-block;font-size:10.5px;padding:3px 9px;border-radius:10px;font-family:'Work Sans',sans-serif;font-weight:500;}
+  .badge.ok{background:var(--green-fill);color:var(--forest-light);}
+  .badge.overdue{background:var(--clay-light);color:var(--clay);}
+  .badge.settled{background:#EFEFEA;color:var(--ink-soft);}
+  .linkbtn{background:none;border:none;color:var(--forest-light);font-family:'Work Sans',sans-serif;font-size:12px;cursor:pointer;padding:0;text-decoration:underline;}
+  .linkbtn:hover{color:var(--forest);}
   .rowdel{border:none;background:none;color:var(--ink-soft);cursor:pointer;font-size:16px;line-height:1;padding:4px;}
   .rowdel:hover{color:var(--clay);}
   tfoot td{padding:10px 7px;font-family:'IBM Plex Mono',monospace;font-weight:500;font-size:12.5px;background:var(--gold-light);color:var(--forest);border-top:2px solid var(--forest);text-align:right;}
@@ -192,6 +198,7 @@
       <div class="panel-head">How this is worked out</div>
       <div class="notes">
         <b>Net savings</b> = running balance (past contributions minus any penalties already charged) + this period's contribution − current outstanding loan due.<br>
+        <b>Penalty</b> = the late fee applies automatically if no savings amount is entered for a member when the period closes — no need to tick anything. You can also mark someone late manually even if they saved something.<br>
         <b>Capital %</b> = a member's net savings ÷ everyone's net savings combined. Members with an unpaid loan still earn ROI on their capital.<br>
         <b>Total income</b> = total interest earned on loans + penalties collected this period.<br>
         <b>Distributable income</b> = 75% (adjustable in Settings) of total income, split by capital % — this is each member's ROI.<br>
@@ -244,7 +251,7 @@
       <div class="panel-head">Members <span class="hint">roster — savings entries are logged on the Dashboard each period</span></div>
       <div style="overflow-x:auto;">
       <table>
-        <thead><tr><th></th><th style="text-align:left;">Name</th><th>Running balance</th></tr></thead>
+        <thead><tr><th></th><th style="text-align:left;">Name</th><th>Running balance</th><th>Active loans</th></tr></thead>
         <tbody id="memberRows"></tbody>
       </table>
       </div>
@@ -257,21 +264,25 @@
 
   <div class="view" id="view-loans">
     <div class="panel">
-      <div class="panel-head">Loans <span class="hint">members borrow interest-free by default · outsiders set their own rate</span></div>
+      <div class="panel-head">Loans <span class="hint">rate is set per loan by the cooperative · link a loan to "Member" so it shows on their account</span></div>
+      <div class="searchbar">
+        <input type="text" id="loanFilter" placeholder="Filter by borrower name">
+      </div>
       <div style="overflow-x:auto;">
       <table>
         <thead>
           <tr>
             <th></th><th style="text-align:left;">Borrower</th><th>Type</th>
-            <th>Principal</th><th>Rate %</th><th>Paid so far</th><th>Interest</th><th>Amount due</th>
+            <th>Principal</th><th>Rate %</th><th>Date taken</th><th>Date due</th>
+            <th>Paid so far</th><th>Interest</th><th>Amount due</th><th>Status</th>
           </tr>
         </thead>
         <tbody id="loanRows"></tbody>
         <tfoot>
           <tr>
             <td colspan="3">Total</td>
-            <td id="lfPrincipal"></td><td></td>
-            <td id="lfPaid"></td><td id="lfInterest"></td><td id="lfDue"></td>
+            <td id="lfPrincipal"></td><td></td><td></td><td></td>
+            <td id="lfPaid"></td><td id="lfInterest"></td><td id="lfDue"></td><td></td>
           </tr>
         </tfoot>
       </table>
@@ -307,7 +318,7 @@
 // 2. Build > Realtime Database > Create Database > start in test mode
 // 3. Copy the URL shown at the top of that page (e.g. https://your-project-default-rtdb.firebaseio.com)
 // 4. Paste it below, replacing the placeholder, then reload this page.
-const FIREBASE_DB_URL = "https://console.firebase.google.com/u/0/project/mirage-savings-proj/database/mirage-savings-proj-default-rtdb/data/~2F";
+const FIREBASE_DB_URL = "REPLACE_WITH_YOUR_FIREBASE_DATABASE_URL";
 const DATA_PATH = "coopData";
 const isConfigured = FIREBASE_DB_URL && !FIREBASE_DB_URL.includes('REPLACE_WITH');
 let eventSource = null;
@@ -359,15 +370,23 @@ function restoreFocus(containerId, snap){
 }
 
 // ---------- loans ----------
+function loanStatus(amountDue, dateDue){
+  if(amountDue <= 0) return 'settled';
+  if(dateDue){
+    const today = new Date().toISOString().slice(0,10);
+    if(dateDue < today) return 'overdue';
+  }
+  return 'ok';
+}
 function computeLoans(){
   return loans.map(l => {
     const principal = parseFloat(l.principal) || 0;
-    const isMember = l.type === 'member';
-    const rate = isMember ? 0 : (parseFloat(l.rate) || 0);
+    const rate = parseFloat(l.rate) || 0;
     const paid = parseFloat(l.paid) || 0;
     const interest = principal * (rate/100);
     const amountDue = Math.max(0, principal + interest - paid);
-    return { ...l, principal, rate, paid, interest, amountDue };
+    const status = loanStatus(amountDue, l.dateDue);
+    return { ...l, principal, rate, paid, interest, amountDue, status };
   });
 }
 function loanDueByMemberName(loanRows){
@@ -389,13 +408,15 @@ function computeOpenPeriod(){
     const entry = currentEntries[m.id] || {};
     const prior = parseFloat(m.balance) || 0;
     const saved = parseFloat(entry.amountSaved) || 0;
-    const missed = !!entry.missed;
+    const manualMissed = !!entry.missed;
+    const autoMissed = saved <= 0;
+    const missed = autoMissed || manualMissed;
     const penalty = missed ? (parseFloat(settings.penaltyFee)||0) : 0;
     const runningAfter = prior + saved - penalty;
     const due = loanDue[m.name] || 0;
     const net = runningAfter - due;
     grand += net;
-    return { id: m.id, name: m.name, prior, saved, missed, penalty, runningAfter, loanDue: due, net };
+    return { id: m.id, name: m.name, prior, saved, missed, autoMissed, manualMissed, penalty, runningAfter, loanDue: due, net };
   });
   let totalPenalty = 0, totalLoanInterest = 0;
   prelim.forEach(p => totalPenalty += p.penalty);
@@ -425,7 +446,9 @@ function renderDashboard(){
       ? `<input data-field="amountSaved" data-kind="entry" data-id="${r.id}" type="number" value="${(currentEntries[r.id]&&currentEntries[r.id].amountSaved)||''}" placeholder="0">`
       : `<span>${fmt(r.saved)}</span>`;
     const missedCell = unlocked
-      ? `<input data-field="missed" data-kind="entry" data-id="${r.id}" type="checkbox" ${r.missed?'checked':''}>`
+      ? (r.autoMissed
+          ? `<input data-field="missed" data-kind="entry" data-id="${r.id}" type="checkbox" checked disabled title="Auto-applied: no savings entered this period"><span class="computed" style="font-size:10.5px;display:block;">auto</span>`
+          : `<input data-field="missed" data-kind="entry" data-id="${r.id}" type="checkbox" ${r.manualMissed?'checked':''} title="Mark late even though an amount was entered">`)
       : `<span>${r.missed ? 'Yes' : 'No'}</span>`;
     tr.innerHTML = `
       <td>${r.name || '(unnamed)'}</td>
@@ -471,12 +494,20 @@ function renderMembers(){
   const focusSnap = captureFocus('memberRows');
   const tbody = document.getElementById('memberRows');
   tbody.innerHTML = '';
+  const loanRows = computeLoans();
   members.forEach((m, i) => {
+    const memberLoans = loanRows.filter(l => l.type === 'member' && l.borrower === m.name);
+    const activeLoans = memberLoans.filter(l => l.amountDue > 0);
+    const outstandingTotal = activeLoans.reduce((s,l) => s + l.amountDue, 0);
+    const loansCell = memberLoans.length === 0
+      ? '<span class="computed">none</span>'
+      : `<button class="linkbtn" data-jump="${m.name}">${activeLoans.length} active · ${fmt(outstandingTotal)}${memberLoans.length > activeLoans.length ? ' <span class="computed">(' + (memberLoans.length - activeLoans.length) + ' settled)</span>' : ''}</button>`;
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td><button class="rowdel" data-kind="member" data-i="${i}" aria-label="Remove member">&times;</button></td>
       <td><input data-field="name" data-kind="member" data-i="${i}" value="${m.name || ''}" placeholder="Member name"></td>
       <td class="computed pos">${fmt(parseFloat(m.balance)||0)}</td>
+      <td>${loansCell}</td>
     `;
     tbody.appendChild(tr);
   });
@@ -496,6 +527,14 @@ function renderMembers(){
       renderAll();
     });
   });
+  document.querySelectorAll('[data-jump]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      const name = e.target.dataset.jump;
+      document.getElementById('loanFilter').value = name;
+      document.querySelector('.tab[data-view="loans"]').click();
+      renderLoans();
+    });
+  });
   restoreFocus('memberRows', focusSnap);
 }
 
@@ -504,9 +543,15 @@ function renderLoans(){
   const focusSnap = captureFocus('loanRows');
   const tbody = document.getElementById('loanRows');
   tbody.innerHTML = '';
-  const rows = computeLoans();
+  const allRows = computeLoans().map((l, i) => ({ ...l, _i: i }));
+  const filterText = (document.getElementById('loanFilter').value || '').trim().toLowerCase();
+  const sorted = [...allRows].sort((a,b) => (a.borrower||'').localeCompare(b.borrower||''));
+  const rows = filterText ? sorted.filter(l => (l.borrower||'').toLowerCase().includes(filterText)) : sorted;
+
   let fPrincipal=0, fPaid=0, fInterest=0, fDue=0;
-  rows.forEach((l, i) => {
+  const statusLabel = { ok: 'On track', overdue: 'Overdue', settled: 'Settled' };
+  rows.forEach(l => {
+    const i = l._i;
     fPrincipal += l.principal; fPaid += l.paid; fInterest += l.interest; fDue += l.amountDue;
     const memberOptions = members.map(m => `<option value="${m.name}" ${l.borrower===m.name?'selected':''}>${m.name || '(unnamed)'}</option>`).join('');
     const borrowerCell = l.type === 'member'
@@ -518,15 +563,18 @@ function renderLoans(){
       <td>${borrowerCell}</td>
       <td>
         <select data-field="type" data-kind="loan" data-i="${i}" style="text-align:right;">
-          <option value="member" ${l.type==='member'?'selected':''}>Member — free</option>
-          <option value="outsider" ${l.type==='outsider'?'selected':''}>Outsider — rate</option>
+          <option value="member" ${l.type==='member'?'selected':''}>Member (linked to their savings)</option>
+          <option value="outsider" ${l.type==='outsider'?'selected':''}>Non-member</option>
         </select>
       </td>
       <td><input data-field="principal" data-kind="loan" data-i="${i}" type="number" value="${l.principal || ''}" placeholder="0"></td>
-      <td><input data-field="rate" data-kind="loan" data-i="${i}" type="number" value="${l.rate || ''}" placeholder="0" ${l.type==='member' ? 'disabled' : ''}></td>
+      <td><input data-field="rate" data-kind="loan" data-i="${i}" type="number" value="${l.rate || ''}" placeholder="0"></td>
+      <td><input data-field="dateTaken" data-kind="loan" data-i="${i}" type="date" value="${l.dateTaken || ''}"></td>
+      <td><input data-field="dateDue" data-kind="loan" data-i="${i}" type="date" value="${l.dateDue || ''}"></td>
       <td><input data-field="paid" data-kind="loan" data-i="${i}" type="number" value="${l.paid || ''}" placeholder="0"></td>
       <td class="computed">${fmt(l.interest)}</td>
       <td class="computed ${l.amountDue>0?'neg':''}">${fmt(l.amountDue)}</td>
+      <td><span class="badge ${l.status}">${statusLabel[l.status]}</span></td>
     `;
     tbody.appendChild(tr);
   });
@@ -540,10 +588,10 @@ function renderLoans(){
       const i = parseInt(e.target.dataset.i);
       const field = e.target.dataset.field;
       loans[i][field] = e.target.value;
-      if(field === 'type' && e.target.value === 'member'){ loans[i].rate = 0; }
       scheduleSave();
       renderLoans();
       renderDashboard();
+      renderMembers();
     });
   });
   document.querySelectorAll('.rowdel[data-kind="loan"]').forEach(btn => {
@@ -834,7 +882,8 @@ document.getElementById('addMember').addEventListener('click', () => {
 });
 document.getElementById('addLoan').addEventListener('click', () => {
   if(!unlocked) return;
-  loans.push({ id: uid('l'), borrower: '', type: 'member', principal: '', rate: '', paid: '' });
+  const today = new Date().toISOString().slice(0,10);
+  loans.push({ id: uid('l'), borrower: '', type: 'member', principal: '', rate: '', paid: '', dateTaken: today, dateDue: '' });
   scheduleSave();
   renderAll();
 });
@@ -848,6 +897,7 @@ document.getElementById('resetAll').addEventListener('click', () => {
 });
 document.getElementById('historySearch').addEventListener('input', e => renderHistory(e.target.value));
 document.getElementById('yearSelect').addEventListener('change', renderYearly);
+document.getElementById('loanFilter').addEventListener('input', () => renderLoans());
 
 ['setPenaltyFee','setCutoffDay','setPayoutPct'].forEach(id => {
   document.getElementById(id).addEventListener('input', e => {
