@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Work+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --forest:#173C2E; --forest-light:#2A6B4E; --gold:#B8902E; --gold-light:#EFE2C0;
@@ -187,6 +188,10 @@
         </tfoot>
       </table>
       </div>
+      <div class="toolbar">
+        <button class="save" id="exportDashXlsx">Download Excel</button>
+        <button class="save" id="exportDashPdf">Download PDF</button>
+      </div>
       <div class="toolbar admin-only" id="closeBar" style="display:none;">
         <input type="text" id="nextPeriodInput" placeholder="Name for next period, e.g. September 2026" style="flex:1;min-width:220px;padding:9px 10px;border:1px solid var(--line);border-radius:4px;font-family:'Work Sans',sans-serif;font-size:13px;">
         <button class="add gold" id="closePeriod">Close period &amp; start next</button>
@@ -251,7 +256,7 @@
       <div class="panel-head">Members <span class="hint">roster — savings entries are logged on the Dashboard each period</span></div>
       <div style="overflow-x:auto;">
       <table>
-        <thead><tr><th></th><th style="text-align:left;">Name</th><th>Running balance</th><th>Active loans</th></tr></thead>
+        <thead><tr><th></th><th style="text-align:left;">Name</th><th>Running balance</th><th>Active loans</th><th>Prepaid periods left</th></tr></thead>
         <tbody id="memberRows"></tbody>
       </table>
       </div>
@@ -339,6 +344,25 @@ function fmt(n){ n = Math.round(n || 0); return '₦' + n.toLocaleString('en-NG'
 function pct(n){ return (Math.round((n||0)*1000)/10) + '%'; }
 function uid(p){ return p + Math.random().toString(36).slice(2,9); }
 
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+function suggestNextPeriod(label){
+  const m = /^([A-Za-z]+)\s+(\d{4})$/.exec((label || '').trim());
+  if(!m) return '';
+  const idx = MONTH_NAMES.findIndex(mn => mn.toLowerCase() === m[1].toLowerCase());
+  if(idx === -1) return '';
+  let year = parseInt(m[2], 10);
+  let nextIdx = idx + 1;
+  if(nextIdx > 11){ nextIdx = 0; year += 1; }
+  return MONTH_NAMES[nextIdx] + ' ' + year;
+}
+function refreshNextPeriodSuggestion(){
+  const el = document.getElementById('nextPeriodInput');
+  if(!el || document.activeElement === el) return; // don't overwrite while the admin is typing
+  if(!el.value){
+    el.value = suggestNextPeriod(currentPeriodLabel);
+  }
+}
+
 // preserve focus/cursor across table rebuilds so typing doesn't get interrupted
 function captureFocus(containerId){
   const el = document.activeElement;
@@ -408,15 +432,17 @@ function computeOpenPeriod(){
     const entry = currentEntries[m.id] || {};
     const prior = parseFloat(m.balance) || 0;
     const saved = parseFloat(entry.amountSaved) || 0;
+    const prepaidLeft = parseFloat(m.prepaidPeriods) || 0;
+    const coveredByPrepay = prepaidLeft > 0;
     const manualMissed = !!entry.missed;
-    const autoMissed = saved <= 0;
-    const missed = autoMissed || manualMissed;
+    const autoMissed = saved <= 0 && !coveredByPrepay;
+    const missed = !coveredByPrepay && (autoMissed || manualMissed);
     const penalty = missed ? (parseFloat(settings.penaltyFee)||0) : 0;
     const runningAfter = prior + saved - penalty;
     const due = loanDue[m.name] || 0;
     const net = runningAfter - due;
     grand += net;
-    return { id: m.id, name: m.name, prior, saved, missed, autoMissed, manualMissed, penalty, runningAfter, loanDue: due, net };
+    return { id: m.id, name: m.name, prior, saved, missed, autoMissed, manualMissed, coveredByPrepay, prepaidLeft, penalty, runningAfter, loanDue: due, net };
   });
   let totalPenalty = 0, totalLoanInterest = 0;
   prelim.forEach(p => totalPenalty += p.penalty);
@@ -443,13 +469,15 @@ function renderDashboard(){
     fSaved += r.saved; fPenalty += r.penalty; fLoanDue += r.loanDue; fNet += r.net; fShare += r.share; fPayout += r.payout;
     const tr = document.createElement('tr');
     const savedCell = unlocked
-      ? `<input data-field="amountSaved" data-kind="entry" data-id="${r.id}" type="number" value="${(currentEntries[r.id]&&currentEntries[r.id].amountSaved)||''}" placeholder="0">`
+      ? `<input data-field="amountSaved" data-kind="entry" data-id="${r.id}" type="text" inputmode="decimal" value="${(currentEntries[r.id]&&currentEntries[r.id].amountSaved)||''}" placeholder="0">`
       : `<span>${fmt(r.saved)}</span>`;
-    const missedCell = unlocked
-      ? (r.autoMissed
-          ? `<input data-field="missed" data-kind="entry" data-id="${r.id}" type="checkbox" checked disabled title="Auto-applied: no savings entered this period"><span class="computed" style="font-size:10.5px;display:block;">auto</span>`
-          : `<input data-field="missed" data-kind="entry" data-id="${r.id}" type="checkbox" ${r.manualMissed?'checked':''} title="Mark late even though an amount was entered">`)
-      : `<span>${r.missed ? 'Yes' : 'No'}</span>`;
+    const missedCell = r.coveredByPrepay
+      ? `<span class="badge ok">prepaid · ${r.prepaidLeft} left</span>`
+      : unlocked
+        ? (r.autoMissed
+            ? `<input data-field="missed" data-kind="entry" data-id="${r.id}" type="checkbox" checked disabled title="Auto-applied: no savings entered this period"><span class="computed" style="font-size:10.5px;display:block;">auto</span>`
+            : `<input data-field="missed" data-kind="entry" data-id="${r.id}" type="checkbox" ${r.manualMissed?'checked':''} title="Mark late even though an amount was entered">`)
+        : `<span>${r.missed ? 'Yes' : 'No'}</span>`;
     tr.innerHTML = `
       <td>${r.name || '(unnamed)'}</td>
       <td>${savedCell}</td>
@@ -508,6 +536,7 @@ function renderMembers(){
       <td><input data-field="name" data-kind="member" data-i="${i}" value="${m.name || ''}" placeholder="Member name"></td>
       <td class="computed pos">${fmt(parseFloat(m.balance)||0)}</td>
       <td>${loansCell}</td>
+      <td><input data-field="prepaidPeriods" data-kind="member" data-i="${i}" type="text" inputmode="numeric" value="${m.prepaidPeriods || ''}" placeholder="0" title="Future periods already paid for and covered"></td>
     `;
     tbody.appendChild(tr);
   });
@@ -567,11 +596,11 @@ function renderLoans(){
           <option value="outsider" ${l.type==='outsider'?'selected':''}>Non-member</option>
         </select>
       </td>
-      <td><input data-field="principal" data-kind="loan" data-i="${i}" type="number" value="${l.principal || ''}" placeholder="0"></td>
-      <td><input data-field="rate" data-kind="loan" data-i="${i}" type="number" value="${l.rate || ''}" placeholder="0"></td>
+      <td><input data-field="principal" data-kind="loan" data-i="${i}" type="text" inputmode="decimal" value="${l.principal || ''}" placeholder="0"></td>
+      <td><input data-field="rate" data-kind="loan" data-i="${i}" type="text" inputmode="decimal" value="${l.rate || ''}" placeholder="0"></td>
       <td><input data-field="dateTaken" data-kind="loan" data-i="${i}" type="date" value="${l.dateTaken || ''}"></td>
       <td><input data-field="dateDue" data-kind="loan" data-i="${i}" type="date" value="${l.dateDue || ''}"></td>
-      <td><input data-field="paid" data-kind="loan" data-i="${i}" type="number" value="${l.paid || ''}" placeholder="0"></td>
+      <td><input data-field="paid" data-kind="loan" data-i="${i}" type="text" inputmode="decimal" value="${l.paid || ''}" placeholder="0"></td>
       <td class="computed">${fmt(l.interest)}</td>
       <td class="computed ${l.amountDue>0?'neg':''}">${fmt(l.amountDue)}</td>
       <td><span class="badge ${l.status}">${statusLabel[l.status]}</span></td>
@@ -627,7 +656,7 @@ function renderHistory(filter){
     rows.forEach(r => { totalNet += r.net; totalPayout += r.payout; });
     const rowsHtml = rows.map(r => `
       <tr>
-        <td>${r.name}</td>
+        <td>${r.name}${r.prepaid ? ' <span class="badge ok" style="margin-left:4px;">prepaid</span>' : ''}</td>
         <td class="computed">${fmt(r.saved)}</td>
         <td class="computed neg">${fmt(r.penalty)}</td>
         <td class="computed neg">${fmt(r.loanDue)}</td>
@@ -647,8 +676,24 @@ function renderHistory(filter){
         <tbody>${rowsHtml}</tbody>
       </table>
       </div>
+      <div class="toolbar">
+        <button class="save" data-export-xlsx="${period.label.replace(/"/g,'&quot;')}">Download Excel</button>
+        <button class="save" data-export-pdf="${period.label.replace(/"/g,'&quot;')}">Download PDF</button>
+      </div>
     `;
     container.appendChild(det);
+  });
+  document.querySelectorAll('[data-export-xlsx]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const period = history.find(p => p.label === btn.dataset.exportXlsx);
+      if(period) exportPeriodXlsx(period.label, period.rows);
+    });
+  });
+  document.querySelectorAll('[data-export-pdf]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const period = history.find(p => p.label === btn.dataset.exportPdf);
+      if(period) exportPeriodPdf(period.label, period.rows);
+    });
   });
   if(!anyShown){
     container.innerHTML = '<div class="empty">No history matches that name.</div>';
@@ -705,30 +750,95 @@ function renderYearly(){
   document.getElementById('yfPayout').textContent = fmt(fPayout);
 }
 
+function safeFilename(s){
+  return (s || 'export').replace(/[^a-z0-9]+/gi, '_').toLowerCase();
+}
+
+const PERIOD_HEADERS = ['Name','Saved','Penalty','Loan due','Net savings','Capital %','ROI share','Payout','Prepaid'];
+function periodRowsToAoa(rows){
+  return rows.map(r => [
+    r.name,
+    Math.round(r.saved || 0),
+    Math.round(r.penalty || 0),
+    Math.round(r.loanDue || 0),
+    Math.round(r.net || 0),
+    pct(r.capitalPct),
+    Math.round(r.share || 0),
+    Math.round(r.payout || 0),
+    (r.prepaid || r.coveredByPrepay) ? 'Yes' : 'No'
+  ]);
+}
+
+function downloadXlsx(title, headers, aoaRows){
+  if(typeof XLSX === 'undefined'){ alert('The spreadsheet library failed to load — check your internet connection and try again.'); return; }
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...aoaRows]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  XLSX.writeFile(wb, safeFilename(title) + '.xlsx');
+}
+
+function downloadPdf(title, headers, aoaRows){
+  const win = window.open('', '_blank');
+  if(!win){ alert('Please allow pop-ups for this site to download a PDF.'); return; }
+  const theadHtml = '<tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>';
+  const tbodyHtml = aoaRows.map(row => '<tr>' + row.map((cell,i) => `<td style="${i===0?'text-align:left;':'text-align:right;'}">${cell}</td>`).join('') + '</tr>').join('');
+  win.document.write(`
+    <html><head><title>${title}</title>
+    <style>
+      body{font-family:Arial,sans-serif;padding:24px;color:#20241F;}
+      h1{font-size:18px;color:#173C2E;margin-bottom:4px;}
+      .sub{font-size:12px;color:#5A6058;margin-bottom:18px;}
+      table{width:100%;border-collapse:collapse;font-size:11px;}
+      th,td{padding:6px 8px;border-bottom:1px solid #ddd;}
+      th{background:#E6EEE3;color:#173C2E;text-align:right;}
+      th:first-child, td:first-child{text-align:left;}
+    </style></head>
+    <body>
+      <h1>Mirage Cooperative</h1>
+      <div class="sub">${title}</div>
+      <table><thead>${theadHtml}</thead><tbody>${tbodyHtml}</tbody></table>
+      <script>window.onload = function(){ window.print(); };<\/script>
+    </body></html>
+  `);
+  win.document.close();
+}
+
+function exportPeriodXlsx(title, rows){ downloadXlsx(title, PERIOD_HEADERS, periodRowsToAoa(rows)); }
+function exportPeriodPdf(title, rows){ downloadPdf(title, PERIOD_HEADERS, periodRowsToAoa(rows)); }
+
 // ---------- close period ----------
 function closePeriod(){
   if(!unlocked) return;
   if(members.length === 0){ alert('Add at least one member before closing a period.'); return; }
   const nextLabel = document.getElementById('nextPeriodInput').value.trim();
-  if(!confirm(`Close "${currentPeriodLabel}"? This locks in the numbers and starts a fresh period.`)) return;
+  if(!nextLabel){
+    alert('Please enter a name for the next period (e.g. "October 2026") before closing — this becomes the new period\'s official name.');
+    document.getElementById('nextPeriodInput').focus();
+    return;
+  }
+  if(!confirm(`Close "${currentPeriodLabel}" and start "${nextLabel}"? This locks in the numbers.`)) return;
 
   const { rows, totalPenalty, totalLoanInterest, totalIncome, distributable } = computeOpenPeriod();
 
   history.push({
     label: currentPeriodLabel,
     closedAt: new Date().toISOString().slice(0,10),
-    rows: rows.map(r => ({ name: r.name, saved: r.saved, penalty: r.penalty, loanDue: r.loanDue, net: r.net, capitalPct: r.capitalPct, share: r.share, payout: r.payout })),
+    rows: rows.map(r => ({ name: r.name, saved: r.saved, penalty: r.penalty, loanDue: r.loanDue, net: r.net, capitalPct: r.capitalPct, share: r.share, payout: r.payout, prepaid: r.coveredByPrepay })),
     totals: { totalPenalty, totalLoanInterest, totalIncome, distributable }
   });
 
-  // commit running balances
+  // commit running balances and count down any advance-payment credit
   rows.forEach(r => {
     const m = members.find(mm => mm.id === r.id);
-    if(m) m.balance = r.runningAfter;
+    if(!m) return;
+    m.balance = r.runningAfter;
+    if(r.coveredByPrepay){
+      m.prepaidPeriods = Math.max(0, (parseFloat(m.prepaidPeriods) || 0) - 1);
+    }
   });
 
   currentEntries = {};
-  currentPeriodLabel = nextLabel || 'Untitled period';
+  currentPeriodLabel = nextLabel;
   document.getElementById('nextPeriodInput').value = '';
 
   scheduleSave();
@@ -743,6 +853,7 @@ function renderAll(){
   renderHistory(document.getElementById('historySearch').value);
   renderYearly();
   document.getElementById('periodLabel').textContent = currentPeriodLabel;
+  refreshNextPeriodSuggestion();
 }
 
 function currentState(){
@@ -898,6 +1009,14 @@ document.getElementById('resetAll').addEventListener('click', () => {
 document.getElementById('historySearch').addEventListener('input', e => renderHistory(e.target.value));
 document.getElementById('yearSelect').addEventListener('change', renderYearly);
 document.getElementById('loanFilter').addEventListener('input', () => renderLoans());
+document.getElementById('exportDashXlsx').addEventListener('click', () => {
+  const { rows } = computeOpenPeriod();
+  exportPeriodXlsx(currentPeriodLabel, rows.map(r => ({ ...r, prepaid: r.coveredByPrepay })));
+});
+document.getElementById('exportDashPdf').addEventListener('click', () => {
+  const { rows } = computeOpenPeriod();
+  exportPeriodPdf(currentPeriodLabel, rows.map(r => ({ ...r, prepaid: r.coveredByPrepay })));
+});
 
 ['setPenaltyFee','setCutoffDay','setPayoutPct'].forEach(id => {
   document.getElementById(id).addEventListener('input', e => {
