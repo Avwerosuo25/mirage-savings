@@ -41,6 +41,9 @@
   .panel{background:var(--card);border:1px solid var(--line);border-radius:6px;margin-bottom:24px;overflow:hidden;}
   .panel-head{background:var(--forest);color:#F4F1E6;padding:12px 18px;font-family:'Fraunces',serif;font-size:16px;font-weight:600;display:flex;justify-content:space-between;align-items:center;}
   .panel-head .hint{font-family:'Work Sans',sans-serif;font-size:12px;font-weight:400;color:#C9D6C7;}
+  .periodname-input{background:rgba(255,255,255,0.14);border:1px solid rgba(255,255,255,0.35);color:#F4F1E6;font-family:'Fraunces',serif;font-size:16px;font-weight:600;padding:2px 8px;border-radius:4px;width:200px;}
+  .periodname-input:focus{outline:none;border-color:#F4F1E6;background:rgba(255,255,255,0.22);}
+  .periodname-input:disabled{background:none;border:none;color:inherit;padding:0;width:auto;font-family:'Fraunces',serif;font-size:16px;font-weight:600;}
 
   table{width:100%;border-collapse:collapse;font-size:12.5px;}
   thead th{background:var(--green-fill);color:var(--forest);text-align:right;font-weight:500;font-size:10.5px;text-transform:uppercase;letter-spacing:0.03em;padding:10px 7px;border-bottom:1px solid var(--line);white-space:nowrap;}
@@ -154,7 +157,7 @@
     </div>
 
     <div class="panel">
-      <div class="panel-head">Open period — <span id="openPeriodName">current month</span>
+      <div class="panel-head">Open period — <input type="text" id="openPeriodInput" class="periodname-input" disabled>
         <span class="hint" id="dashHint">read-only view · log in to record entries</span>
       </div>
       <div style="overflow-x:auto;">
@@ -162,8 +165,8 @@
         <thead>
           <tr>
             <th style="text-align:left;">Name</th>
+            <th>Monthly amount</th>
             <th>Saved this period</th>
-            <th>Missed</th>
             <th>Penalty</th>
             <th>Loan due</th>
             <th>Net savings</th>
@@ -176,8 +179,8 @@
         <tfoot>
           <tr>
             <td>Total</td>
+            <td id="dfMonthly"></td>
             <td id="dfSaved"></td>
-            <td></td>
             <td id="dfPenalty"></td>
             <td id="dfLoanDue"></td>
             <td id="dfNet"></td>
@@ -203,7 +206,7 @@
       <div class="panel-head">How this is worked out</div>
       <div class="notes">
         <b>Net savings</b> = running balance (past contributions minus any penalties already charged) + this period's contribution − current outstanding loan due.<br>
-        <b>Penalty</b> = the late fee applies automatically if no savings amount is entered for a member when the period closes — no need to tick anything. You can also mark someone late manually even if they saved something.<br>
+        <b>Saved this period</b> = a simple checkbox per member. Ticked adds their fixed monthly amount (set on the Members tab) to their balance; left unticked means they defaulted and the penalty applies automatically — no amount needs typing each month.<br>
         <b>Capital %</b> = a member's net savings ÷ everyone's net savings combined. Members with an unpaid loan still earn ROI on their capital.<br>
         <b>Total income</b> = total interest earned on loans + penalties collected this period.<br>
         <b>Distributable income</b> = 75% (adjustable in Settings) of total income, split by capital % — this is each member's ROI.<br>
@@ -253,10 +256,10 @@
 
   <div class="view" id="view-members">
     <div class="panel">
-      <div class="panel-head">Members <span class="hint">roster — savings entries are logged on the Dashboard each period</span></div>
+      <div class="panel-head">Members <span class="hint">set each member's fixed monthly amount — the Dashboard becomes a simple checkbox from there</span></div>
       <div style="overflow-x:auto;">
       <table>
-        <thead><tr><th></th><th style="text-align:left;">Name</th><th>Running balance</th><th>Active loans</th><th>Prepaid periods left</th></tr></thead>
+        <thead><tr><th></th><th style="text-align:left;">Name</th><th>Monthly contribution</th><th>Running balance</th><th>Active loans</th><th>Prepaid periods left</th></tr></thead>
         <tbody id="memberRows"></tbody>
       </table>
       </div>
@@ -431,18 +434,18 @@ function computeOpenPeriod(){
   const prelim = members.map(m => {
     const entry = currentEntries[m.id] || {};
     const prior = parseFloat(m.balance) || 0;
-    const saved = parseFloat(entry.amountSaved) || 0;
+    const monthlyAmount = parseFloat(m.monthlyAmount) || 0;
     const prepaidLeft = parseFloat(m.prepaidPeriods) || 0;
     const coveredByPrepay = prepaidLeft > 0;
-    const manualMissed = !!entry.missed;
-    const autoMissed = saved <= 0 && !coveredByPrepay;
-    const missed = !coveredByPrepay && (autoMissed || manualMissed);
+    const paidThisPeriod = !!entry.paid;
+    const saved = paidThisPeriod ? monthlyAmount : 0;
+    const missed = !coveredByPrepay && !paidThisPeriod;
     const penalty = missed ? (parseFloat(settings.penaltyFee)||0) : 0;
     const runningAfter = prior + saved - penalty;
     const due = loanDue[m.name] || 0;
     const net = runningAfter - due;
     grand += net;
-    return { id: m.id, name: m.name, prior, saved, missed, autoMissed, manualMissed, coveredByPrepay, prepaidLeft, penalty, runningAfter, loanDue: due, net };
+    return { id: m.id, name: m.name, prior, monthlyAmount, saved, missed, paidThisPeriod, coveredByPrepay, prepaidLeft, penalty, runningAfter, loanDue: due, net };
   });
   let totalPenalty = 0, totalLoanInterest = 0;
   prelim.forEach(p => totalPenalty += p.penalty);
@@ -464,24 +467,22 @@ function renderDashboard(){
   const { rows, totalPenalty, totalLoanInterest, totalIncome, distributable } = computeOpenPeriod();
   const tbody = document.getElementById('dashRows');
   tbody.innerHTML = '';
-  let fSaved=0, fPenalty=0, fLoanDue=0, fNet=0, fShare=0, fPayout=0;
+  let fMonthly=0, fSaved=0, fPenalty=0, fLoanDue=0, fNet=0, fShare=0, fPayout=0;
   rows.forEach(r => {
-    fSaved += r.saved; fPenalty += r.penalty; fLoanDue += r.loanDue; fNet += r.net; fShare += r.share; fPayout += r.payout;
+    fMonthly += r.monthlyAmount; fSaved += r.saved; fPenalty += r.penalty; fLoanDue += r.loanDue; fNet += r.net; fShare += r.share; fPayout += r.payout;
     const tr = document.createElement('tr');
-    const savedCell = unlocked
-      ? `<input data-field="amountSaved" data-kind="entry" data-id="${r.id}" type="text" inputmode="decimal" value="${(currentEntries[r.id]&&currentEntries[r.id].amountSaved)||''}" placeholder="0">`
-      : `<span>${fmt(r.saved)}</span>`;
-    const missedCell = r.coveredByPrepay
+    const savedCell = r.coveredByPrepay
       ? `<span class="badge ok">prepaid · ${r.prepaidLeft} left</span>`
       : unlocked
-        ? (r.autoMissed
-            ? `<input data-field="missed" data-kind="entry" data-id="${r.id}" type="checkbox" checked disabled title="Auto-applied: no savings entered this period"><span class="computed" style="font-size:10.5px;display:block;">auto</span>`
-            : `<input data-field="missed" data-kind="entry" data-id="${r.id}" type="checkbox" ${r.manualMissed?'checked':''} title="Mark late even though an amount was entered">`)
-        : `<span>${r.missed ? 'Yes' : 'No'}</span>`;
+        ? `<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
+             <input data-field="paid" data-kind="entry" data-id="${r.id}" type="checkbox" ${r.paidThisPeriod?'checked':''}>
+             <span class="computed" style="font-size:11px;">${r.paidThisPeriod ? fmt(r.saved) : 'not yet'}</span>
+           </label>`
+        : `<span class="badge ${r.missed ? 'overdue' : 'ok'}">${r.missed ? 'Defaulted' : 'Saved'}</span>`;
     tr.innerHTML = `
       <td>${r.name || '(unnamed)'}</td>
-      <td>${savedCell}</td>
-      <td style="text-align:center;">${missedCell}</td>
+      <td class="computed">${fmt(r.monthlyAmount)}</td>
+      <td style="text-align:center;">${savedCell}</td>
       <td class="computed neg">${fmt(r.penalty)}</td>
       <td class="computed neg">${fmt(r.loanDue)}</td>
       <td class="computed pos">${fmt(r.net)}</td>
@@ -491,6 +492,7 @@ function renderDashboard(){
     `;
     tbody.appendChild(tr);
   });
+  document.getElementById('dfMonthly').textContent = fmt(fMonthly);
   document.getElementById('dfSaved').textContent = fmt(fSaved);
   document.getElementById('dfPenalty').textContent = fmt(fPenalty);
   document.getElementById('dfLoanDue').textContent = fmt(fLoanDue);
@@ -502,7 +504,11 @@ function renderDashboard(){
   document.getElementById('statLoanRoi').textContent = fmt(totalLoanInterest);
   document.getElementById('statDistrib').textContent = fmt(distributable);
   document.getElementById('totalIncome').textContent = fmt(totalIncome);
-  document.getElementById('openPeriodName').textContent = currentPeriodLabel;
+  const periodInput = document.getElementById('openPeriodInput');
+  periodInput.disabled = !unlocked;
+  if(document.activeElement !== periodInput){
+    periodInput.value = currentPeriodLabel;
+  }
   document.getElementById('dashHint').textContent = unlocked ? 'editing entries for this period' : 'read-only view · log in to record entries';
 
   document.querySelectorAll('[data-kind="entry"]').forEach(inp => {
@@ -534,6 +540,7 @@ function renderMembers(){
     tr.innerHTML = `
       <td><button class="rowdel" data-kind="member" data-i="${i}" aria-label="Remove member">&times;</button></td>
       <td><input data-field="name" data-kind="member" data-i="${i}" value="${m.name || ''}" placeholder="Member name"></td>
+      <td><input data-field="monthlyAmount" data-kind="member" data-i="${i}" type="text" inputmode="decimal" value="${m.monthlyAmount || ''}" placeholder="0"></td>
       <td class="computed pos">${fmt(parseFloat(m.balance)||0)}</td>
       <td>${loansCell}</td>
       <td><input data-field="prepaidPeriods" data-kind="member" data-i="${i}" type="text" inputmode="numeric" value="${m.prepaidPeriods || ''}" placeholder="0" title="Future periods already paid for and covered"></td>
@@ -987,7 +994,7 @@ document.getElementById('changePasscode').addEventListener('click', () => {
 
 document.getElementById('addMember').addEventListener('click', () => {
   if(!unlocked) return;
-  members.push({ id: uid('m'), name: '', balance: 0 });
+  members.push({ id: uid('m'), name: '', balance: 0, monthlyAmount: '' });
   scheduleSave();
   renderAll();
 });
@@ -1009,6 +1016,28 @@ document.getElementById('resetAll').addEventListener('click', () => {
 document.getElementById('historySearch').addEventListener('input', e => renderHistory(e.target.value));
 document.getElementById('yearSelect').addEventListener('change', renderYearly);
 document.getElementById('loanFilter').addEventListener('input', () => renderLoans());
+document.getElementById('openPeriodInput').addEventListener('input', e => {
+  if(!unlocked) return;
+  currentPeriodLabel = e.target.value;
+  document.getElementById('periodLabel').textContent = currentPeriodLabel;
+  scheduleSave();
+  refreshNextPeriodSuggestion();
+});
+document.getElementById('openPeriodInput').addEventListener('blur', e => {
+  if(!unlocked) return;
+  const trimmed = e.target.value.trim();
+  if(!trimmed){
+    e.target.value = currentPeriodLabel || 'Untitled period';
+    return;
+  }
+  if(trimmed !== currentPeriodLabel){
+    currentPeriodLabel = trimmed;
+    e.target.value = trimmed;
+    document.getElementById('periodLabel').textContent = currentPeriodLabel;
+    scheduleSave();
+    refreshNextPeriodSuggestion();
+  }
+});
 document.getElementById('exportDashXlsx').addEventListener('click', () => {
   const { rows } = computeOpenPeriod();
   exportPeriodXlsx(currentPeriodLabel, rows.map(r => ({ ...r, prepaid: r.coveredByPrepay })));
@@ -1066,7 +1095,7 @@ async function init(){
   document.getElementById('setPayoutPct').value = settings.payoutPct;
 
   if(members.length === 0){
-    members = [{ id: uid('m'), name: 'Sample member', balance: 0 }];
+    members = [{ id: uid('m'), name: 'Sample member', balance: 0, monthlyAmount: 50000 }];
   }
 
   applyLockState();
