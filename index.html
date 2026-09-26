@@ -8,6 +8,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Work+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <style>
   :root{
     --forest:#173C2E; --forest-light:#2A6B4E; --gold:#B8902E; --gold-light:#EFE2C0;
@@ -25,6 +27,10 @@
   .lockbtn{font-family:'Work Sans',sans-serif;font-size:12.5px;border:1px solid var(--line);background:var(--card);padding:7px 13px;border-radius:4px;cursor:pointer;color:var(--ink-soft);display:flex;align-items:center;gap:6px;}
   .lockbtn:hover{border-color:var(--forest-light);color:var(--forest);}
   .lockbtn.unlocked{background:var(--green-fill);color:var(--forest-light);border-color:var(--forest-light);}
+  .loginpanel{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px 14px;margin-bottom:16px;}
+  .loginpanel input{padding:8px 10px;border:1px solid var(--line);border-radius:4px;font-family:'Work Sans',sans-serif;font-size:13px;min-width:180px;}
+  .loginpanel input:focus{outline:none;border-color:var(--forest-light);}
+  .loginerror{color:var(--clay);font-size:12px;}
 
   .tabs{display:flex;gap:4px;margin:18px 0 20px;flex-wrap:wrap;}
   .tab{padding:9px 16px;font-size:13px;font-weight:500;color:var(--ink-soft);background:none;border:1px solid var(--line);border-radius:5px;cursor:pointer;font-family:'Work Sans',sans-serif;}
@@ -124,7 +130,7 @@
 
   <div class="setupbanner" id="setupBanner" style="display:none;">
     <b>Connect a database to make this live</b>
-    Add your Firebase Realtime Database URL to <code>FIREBASE_DB_URL</code> near the top of the script, then reload. Until then, nothing you enter here will be saved or shared.
+    Add your Firebase config and Realtime Database URL to <code>FIREBASE_CONFIG</code> near the top of the script, then reload. Until then, nothing you enter here will be saved or shared.
   </div>
 
   <div class="masthead">
@@ -137,6 +143,13 @@
       <div class="period" id="periodLabel">2026</div>
       <button class="lockbtn" id="lockBtn"><i>&#128274;</i><span id="lockBtnText">Admin login</span></button>
     </div>
+  </div>
+
+  <div class="loginpanel" id="loginPanel" style="display:none;">
+    <input type="email" id="loginEmail" placeholder="Email" autocomplete="username">
+    <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password">
+    <button class="add" id="loginSubmit">Log in</button>
+    <span id="loginError" class="loginerror"></span>
   </div>
 
   <div class="tabs" id="tabbar">
@@ -310,8 +323,10 @@
         <div class="field"><label>Savings cutoff day</label><input type="number" id="setCutoffDay" value="30"></div>
         <div class="field"><label>Payout share of income (%)</label><input type="number" id="setPayoutPct" value="75"></div>
       </div>
+      <div class="notes" style="border-top:none;">
+        <b>Who can log in</b> — this app has no sign-up form. Admin accounts are created directly in your Firebase project (Authentication → Users → Add user). Only people you've added there can ever log in.
+      </div>
       <div class="toolbar">
-        <button class="save" id="changePasscode">Change admin passcode</button>
         <button class="save" id="resetAll">Clear all data</button>
         <span class="savestate" id="saveStateSettings">saved</span>
       </div>
@@ -321,25 +336,54 @@
 </div>
 
 <script>
-// ====== DATABASE CONFIG ======
+// ====== FIREBASE CONFIG ======
 // 1. Create a free project at https://console.firebase.google.com
-// 2. Build > Realtime Database > Create Database > start in test mode
-// 3. Copy the URL shown at the top of that page (e.g. https://your-project-default-rtdb.firebaseio.com)
-// 4. Paste it below, replacing the placeholder, then reload this page.
-const FIREBASE_DB_URL = "REPLACE_WITH_YOUR_FIREBASE_DATABASE_URL";
+// 2. Build > Realtime Database > Create Database > start in test mode (we lock it down with rules below)
+// 3. Build > Authentication > Sign-in method > enable "Email/Password"
+// 4. Build > Authentication > Users > Add user — do this TWICE, once for each person allowed to log in.
+//    There is no sign-up form anywhere in this app, so this is the only way an account can ever be created.
+// 5. Build > Realtime Database > Rules tab, replace the rules with:
+//      { "rules": { "coopData": { ".read": true, ".write": "auth != null" } } }
+//    This keeps the dashboard/history public to view, but only your two signed-in accounts can edit anything.
+// 6. Project settings (gear icon) > General > "Your apps" > add a Web app if you haven't > copy the
+//    firebaseConfig object shown there and paste its values below. Also paste your Realtime Database URL.
+  const firebaseConfig = {
+    apiKey: "AIzaSyBVvsc4bk8flYLgkeVirQCOT5N4tyt8__c",
+    authDomain: "mirage-cooperative.firebaseapp.com",
+    databaseURL: "https://mirage-cooperative-default-rtdb.firebaseio.com",
+    projectId: "mirage-cooperative",
+    storageBucket: "mirage-cooperative.firebasestorage.app",
+    messagingSenderId: "577325504436",
+    appId: "1:577325504436:web:44b75eff0b1c66736444e1"
+  };
+  
 const DATA_PATH = "coopData";
-const isConfigured = FIREBASE_DB_URL && !FIREBASE_DB_URL.includes('REPLACE_WITH');
+const isConfigured = FIREBASE_CONFIG.apiKey && !FIREBASE_CONFIG.apiKey.includes('REPLACE_WITH')
+  && FIREBASE_CONFIG.databaseURL && !FIREBASE_CONFIG.databaseURL.includes('REPLACE_WITH');
 let eventSource = null;
 let applyingRemote = false;
+let auth = null;
 
-function dbEndpoint(){ return `${FIREBASE_DB_URL}/${DATA_PATH}.json`; }
+if(isConfigured){
+  firebase.initializeApp(FIREBASE_CONFIG);
+  auth = firebase.auth();
+}
+
+function dbEndpoint(){ return `${FIREBASE_CONFIG.databaseURL}/${DATA_PATH}.json`; }
+async function dbWriteEndpoint(){
+  if(auth && auth.currentUser){
+    const token = await auth.currentUser.getIdToken();
+    return `${dbEndpoint()}?auth=${token}`;
+  }
+  return dbEndpoint();
+}
 
 let members = [];
 let loans = [];
 let history = [];
 let currentEntries = {};
 let currentPeriodLabel = 'August 2026';
-let settings = { penaltyFee: 1000, cutoffDay: 30, payoutPct: 75, adminPasscode: '' };
+let settings = { penaltyFee: 1000, cutoffDay: 30, payoutPct: 75 };
 let unlocked = false;
 let saveTimer = null;
 
@@ -875,7 +919,7 @@ function applyRemoteState(data){
   history = data.history || [];
   currentEntries = data.currentEntries || {};
   currentPeriodLabel = data.currentPeriodLabel || currentPeriodLabel;
-  settings = Object.assign({ penaltyFee:1000, cutoffDay:30, payoutPct:75, adminPasscode:'' }, data.settings || {});
+  settings = Object.assign({ penaltyFee:1000, cutoffDay:30, payoutPct:75 }, data.settings || {});
   document.getElementById('setPenaltyFee').value = settings.penaltyFee;
   document.getElementById('setCutoffDay').value = settings.cutoffDay;
   document.getElementById('setPayoutPct').value = settings.payoutPct;
@@ -922,10 +966,17 @@ function scheduleSave(){
     });
     return;
   }
+  if(!unlocked){
+    ['saveStateDash','saveStateMembers','saveStateLoans','saveStateSettings'].forEach(id => {
+      const el = document.getElementById(id); if(el) el.textContent = 'log in to save';
+    });
+    return;
+  }
   clearTimeout(saveTimer);
   saveTimer = setTimeout(async () => {
     try{
-      const res = await fetch(dbEndpoint(), {
+      const endpoint = await dbWriteEndpoint();
+      const res = await fetch(endpoint, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(currentState())
@@ -936,60 +987,66 @@ function scheduleSave(){
       });
     }catch(err){
       ['saveStateDash','saveStateMembers','saveStateLoans','saveStateSettings'].forEach(id => {
-        const el = document.getElementById(id); if(el) el.textContent = 'save failed';
+        const el = document.getElementById(id); if(el) el.textContent = 'save failed — check you\'re logged in';
       });
       console.error('Storage error:', err);
     }
   }, 500);
 }
 
-// ---------- admin lock ----------
-function applyLockState(){
+// ---------- admin lock (real Firebase Authentication) ----------
+function applyLockState(userEmail){
   document.querySelectorAll('.admin-only').forEach(el => { el.style.display = unlocked ? '' : 'none'; });
   document.getElementById('closeBar').style.display = unlocked ? 'flex' : 'none';
   const btn = document.getElementById('lockBtn');
   const txt = document.getElementById('lockBtnText');
   btn.classList.toggle('unlocked', unlocked);
-  txt.textContent = unlocked ? 'Editing unlocked' : 'Admin login';
-  if(!unlocked && ['members','loans','settings'].includes(document.querySelector('.tab.active').dataset.view)){
+  txt.textContent = unlocked ? `Log out (${userEmail || 'admin'})` : 'Admin login';
+  if(unlocked) document.getElementById('loginPanel').style.display = 'none';
+  if(!unlocked && document.querySelector('.tab.active') && ['members','loans','settings'].includes(document.querySelector('.tab.active').dataset.view)){
     document.querySelector('.tab[data-view="dashboard"]').click();
   }
   renderDashboard();
 }
 
+if(isConfigured){
+  auth.onAuthStateChanged(user => {
+    unlocked = !!user;
+    applyLockState(user ? user.email : null);
+  });
+}
+
 document.getElementById('lockBtn').addEventListener('click', () => {
+  if(!isConfigured){
+    alert('Connect Firebase first — see the banner at the top of the page.');
+    return;
+  }
   if(unlocked){
-    unlocked = false;
-    applyLockState();
+    auth.signOut();
     return;
   }
-  if(!settings.adminPasscode){
-    const p1 = prompt('No admin passcode is set yet. Create one now:');
-    if(!p1) return;
-    settings.adminPasscode = p1;
-    scheduleSave();
-    unlocked = true;
-    applyLockState();
-    alert('Passcode set. Keep it safe — you can change it later in Settings.');
-    return;
-  }
-  const attempt = prompt('Enter admin passcode:');
-  if(attempt === null) return;
-  if(attempt === settings.adminPasscode){
-    unlocked = true;
-    applyLockState();
-  }else{
-    alert('Incorrect passcode.');
-  }
+  const panel = document.getElementById('loginPanel');
+  panel.style.display = (panel.style.display === 'none' || !panel.style.display) ? 'flex' : 'none';
+  if(panel.style.display === 'flex') document.getElementById('loginEmail').focus();
 });
 
-document.getElementById('changePasscode').addEventListener('click', () => {
-  if(!unlocked) return;
-  const p1 = prompt('Enter a new admin passcode:');
-  if(!p1) return;
-  settings.adminPasscode = p1;
-  scheduleSave();
-  alert('Passcode updated.');
+document.getElementById('loginSubmit').addEventListener('click', async () => {
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  errEl.textContent = '';
+  if(!email || !password){ errEl.textContent = 'Enter both email and password.'; return; }
+  try{
+    await auth.signInWithEmailAndPassword(email, password);
+    document.getElementById('loginEmail').value = '';
+    document.getElementById('loginPassword').value = '';
+  }catch(err){
+    errEl.textContent = 'Login failed — check your email and password.';
+    console.error('Login error:', err);
+  }
+});
+document.getElementById('loginPassword').addEventListener('keydown', e => {
+  if(e.key === 'Enter') document.getElementById('loginSubmit').click();
 });
 
 document.getElementById('addMember').addEventListener('click', () => {
