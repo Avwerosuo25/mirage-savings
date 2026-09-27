@@ -347,7 +347,7 @@
 //    This keeps the dashboard/history public to view, but only your two signed-in accounts can edit anything.
 // 6. Project settings (gear icon) > General > "Your apps" > add a Web app if you haven't > copy the
 //    firebaseConfig object shown there and paste its values below. Also paste your Realtime Database URL.
-  const FIREBASE_CONFIG = {
+const FIREBASE_CONFIG = {
     apiKey: "AIzaSyBVvsc4bk8flYLgkeVirQCOT5N4tyt8__c",
     authDomain: "mirage-cooperative.firebaseapp.com",
     databaseURL: "https://mirage-cooperative-default-rtdb.firebaseio.com",
@@ -457,14 +457,25 @@ function computeLoans(){
     const interest = principal * (rate/100);
     const amountDue = Math.max(0, principal + interest - paid);
     const status = loanStatus(amountDue, l.dateDue);
-    return { ...l, principal, rate, paid, interest, amountDue, status };
+    let borrowerId = l.borrowerId || '';
+    let displayName = l.borrower || '';
+    if(l.type === 'member'){
+      // legacy loans (created before ID-linking existed) only have a name — resolve it once
+      if(!borrowerId && l.borrower){
+        const legacyMatch = members.find(m => m.name === l.borrower);
+        if(legacyMatch) borrowerId = legacyMatch.id;
+      }
+      const linked = members.find(m => m.id === borrowerId);
+      if(linked) displayName = linked.name; // always reflect the member's current name, even after a rename
+    }
+    return { ...l, principal, rate, paid, interest, amountDue, status, borrowerId, borrower: displayName };
   });
 }
-function loanDueByMemberName(loanRows){
+function loanDueByMemberId(loanRows){
   const map = {};
   loanRows.forEach(l => {
-    if(l.type === 'member' && l.borrower){
-      map[l.borrower] = (map[l.borrower] || 0) + l.amountDue;
+    if(l.type === 'member' && l.borrowerId){
+      map[l.borrowerId] = (map[l.borrowerId] || 0) + l.amountDue;
     }
   });
   return map;
@@ -473,7 +484,7 @@ function loanDueByMemberName(loanRows){
 // ---------- open period preview (not yet committed) ----------
 function computeOpenPeriod(){
   const loanRows = computeLoans();
-  const loanDue = loanDueByMemberName(loanRows);
+  const loanDue = loanDueByMemberId(loanRows);
   let grand = 0;
   const prelim = members.map(m => {
     const entry = currentEntries[m.id] || {};
@@ -486,7 +497,7 @@ function computeOpenPeriod(){
     const missed = !coveredByPrepay && !paidThisPeriod;
     const penalty = missed ? (parseFloat(settings.penaltyFee)||0) : 0;
     const runningAfter = prior + saved - penalty;
-    const due = loanDue[m.name] || 0;
+    const due = loanDue[m.id] || 0;
     const net = runningAfter - due;
     grand += net;
     return { id: m.id, name: m.name, prior, monthlyAmount, saved, missed, paidThisPeriod, coveredByPrepay, prepaidLeft, penalty, runningAfter, loanDue: due, net };
@@ -574,7 +585,7 @@ function renderMembers(){
   tbody.innerHTML = '';
   const loanRows = computeLoans();
   members.forEach((m, i) => {
-    const memberLoans = loanRows.filter(l => l.type === 'member' && l.borrower === m.name);
+    const memberLoans = loanRows.filter(l => l.type === 'member' && l.borrowerId === m.id);
     const activeLoans = memberLoans.filter(l => l.amountDue > 0);
     const outstandingTotal = activeLoans.reduce((s,l) => s + l.amountDue, 0);
     const loansCell = memberLoans.length === 0
@@ -633,9 +644,9 @@ function renderLoans(){
   rows.forEach(l => {
     const i = l._i;
     fPrincipal += l.principal; fPaid += l.paid; fInterest += l.interest; fDue += l.amountDue;
-    const memberOptions = members.map(m => `<option value="${m.name}" ${l.borrower===m.name?'selected':''}>${m.name || '(unnamed)'}</option>`).join('');
+    const memberOptions = members.map(m => `<option value="${m.id}" ${l.borrowerId===m.id?'selected':''}>${m.name || '(unnamed)'}</option>`).join('');
     const borrowerCell = l.type === 'member'
-      ? `<select data-field="borrower" data-kind="loan" data-i="${i}"><option value="">Select member…</option>${memberOptions}</select>`
+      ? `<select data-field="borrowerId" data-kind="loan" data-i="${i}"><option value="">Select member…</option>${memberOptions}</select>`
       : `<input data-field="borrower" data-kind="loan" data-i="${i}" value="${l.borrower || ''}" placeholder="Outsider name">`;
     const tr = document.createElement('tr');
     tr.innerHTML = `
@@ -668,6 +679,10 @@ function renderLoans(){
       const i = parseInt(e.target.dataset.i);
       const field = e.target.dataset.field;
       loans[i][field] = e.target.value;
+      if(field === 'borrowerId'){
+        const linked = members.find(m => m.id === e.target.value);
+        loans[i].borrower = linked ? linked.name : '';
+      }
       scheduleSave();
       renderLoans();
       renderDashboard();
@@ -686,6 +701,15 @@ function renderLoans(){
 }
 
 // ---------- render: history ----------
+function historyRowMatches(row, query){
+  if((row.name || '').toLowerCase().includes(query)) return true;
+  if(row.memberId){
+    const current = members.find(m => m.id === row.memberId);
+    if(current && (current.name || '').toLowerCase().includes(query)) return true;
+  }
+  return false;
+}
+
 function renderHistory(filter){
   const container = document.getElementById('historyList');
   container.innerHTML = '';
@@ -697,7 +721,7 @@ function renderHistory(filter){
   }
   let anyShown = false;
   ordered.forEach(period => {
-    const rows = q ? period.rows.filter(r => (r.name||'').toLowerCase().includes(q)) : period.rows;
+    const rows = q ? period.rows.filter(r => historyRowMatches(r, q)) : period.rows;
     if(q && rows.length === 0) return;
     anyShown = true;
     const det = document.createElement('details');
@@ -769,8 +793,10 @@ function renderYearly(){
   const byMember = {};
   periods.forEach(p => {
     p.rows.forEach(r => {
-      if(!byMember[r.name]) byMember[r.name] = { name: r.name, periods: 0, saved: 0, penalty: 0, share: 0, payout: 0, lastNet: 0 };
-      const b = byMember[r.name];
+      const key = r.memberId || r.name; // fall back to name for records saved before ID-linking existed
+      const currentName = r.memberId ? (members.find(m => m.id === r.memberId)?.name || r.name) : r.name;
+      if(!byMember[key]) byMember[key] = { name: currentName, periods: 0, saved: 0, penalty: 0, share: 0, payout: 0, lastNet: 0 };
+      const b = byMember[key];
       b.periods += 1; b.saved += r.saved; b.penalty += r.penalty; b.share += r.share; b.payout += r.payout; b.lastNet = r.net;
     });
   });
@@ -874,7 +900,7 @@ function closePeriod(){
   history.push({
     label: currentPeriodLabel,
     closedAt: new Date().toISOString().slice(0,10),
-    rows: rows.map(r => ({ name: r.name, saved: r.saved, penalty: r.penalty, loanDue: r.loanDue, net: r.net, capitalPct: r.capitalPct, share: r.share, payout: r.payout, prepaid: r.coveredByPrepay })),
+    rows: rows.map(r => ({ memberId: r.id, name: r.name, saved: r.saved, penalty: r.penalty, loanDue: r.loanDue, net: r.net, capitalPct: r.capitalPct, share: r.share, payout: r.payout, prepaid: r.coveredByPrepay })),
     totals: { totalPenalty, totalLoanInterest, totalIncome, distributable }
   });
 
@@ -1058,7 +1084,7 @@ document.getElementById('addMember').addEventListener('click', () => {
 document.getElementById('addLoan').addEventListener('click', () => {
   if(!unlocked) return;
   const today = new Date().toISOString().slice(0,10);
-  loans.push({ id: uid('l'), borrower: '', type: 'member', principal: '', rate: '', paid: '', dateTaken: today, dateDue: '' });
+  loans.push({ id: uid('l'), borrower: '', borrowerId: '', type: 'member', principal: '', rate: '', paid: '', dateTaken: today, dateDue: '' });
   scheduleSave();
   renderAll();
 });
